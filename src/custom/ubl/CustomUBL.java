@@ -8,6 +8,7 @@
 package custom.ubl;
 
 import java.io.*;
+import java.util.Base64;
 import org.w3c.dom.*;
 
 import javax.xml.parsers.DocumentBuilder;
@@ -53,6 +54,7 @@ public class CustomUBL implements Callable<Integer> {
     private String pXslTemplate;
     private String pTempOutput;
     private String pDirOutput;
+    private String pDirInput;
     private String pRunGS;
     private String pCmdGS;
     private final String TEMPLATE = "%TEMPLATE%";
@@ -69,8 +71,8 @@ public class CustomUBL implements Callable<Integer> {
     private String pCodeRoutage;
     private static String pXdoConfig;
     private String pUblXsltPath;
-    private String pXsdPath;
-    private String pSchematronPath;
+    private UBLValidator pUBLValidator;
+    private String pAttachment;
 
     private String replaceConstValue(String inputStr) {
         String replaceStr = inputStr.replace(APP_HOME, pAppHome);
@@ -82,7 +84,7 @@ public class CustomUBL implements Callable<Integer> {
 
     // Déclaration des variables
     public CustomUBL(int startI, int endI, NodeList inputNode, ByteArrayOutputStream baos, String inTmpl,
-            String inFileName, String inConfig, String inParamType) {
+            String inFileName, String inConfig, String inParamType, UBLValidator inUBLValidator) {
         startInvoice = startI;
         endInvoice = endI;
         list = inputNode;
@@ -91,6 +93,7 @@ public class CustomUBL implements Callable<Integer> {
         pFileName = inFileName;
         configFile = inConfig;
         pParamType = inParamType;
+        pUBLValidator = inUBLValidator;
     }
 
     // Chargement du fichier de configuration
@@ -105,6 +108,7 @@ public class CustomUBL implements Callable<Integer> {
             pProcessHome = resource.getProperty("processHome");
             pTempOutput = replaceConstValue(resource.getProperty("tempOutput"));
             pDirOutput = replaceConstValue(resource.getProperty("dirOutput"));
+            pDirInput = replaceConstValue(resource.getProperty("dirInput"));
             pRunGS = resource.getProperty("runGS");
             pCmdGS = resource.getProperty("cmdGS");
             pURL = resource.getProperty("URL");
@@ -116,8 +120,6 @@ public class CustomUBL implements Callable<Integer> {
             pDBUser = resource.getProperty("DBUser");
             pDBPasswd = decodePasswd(resource.getProperty("DBPassword"));
             pXdoConfig = resource.getProperty("xdo");
-            pXsdPath = replaceConstValue(resource.getProperty("ublXsdPath"));
-            pSchematronPath = replaceConstValue(resource.getProperty("ublSchematronPath"));
 
             resource = resources.getResourceByName(pTemplate);
             pDocID = resource.getProperty("docID");
@@ -132,6 +134,7 @@ public class CustomUBL implements Callable<Integer> {
             pXslTemplate = replaceConstValue(resource.getProperty("xsl"));
             pCodeRoutage = resource.getProperty("codeRoutage");
             pUblXsltPath = replaceConstValue(resource.getProperty("ublXslt"));
+            pAttachment = resource.getProperty("attachment");
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -391,6 +394,99 @@ public class CustomUBL implements Callable<Integer> {
         return db.parse(new File(ublFilePath));
     }
 
+    /**
+     * Embeds a PDF file as base64 in the UBL XML document
+     * @param ublFilePath Path to the UBL XML file
+     * @param pdfFilePath Path to the PDF file to embed
+     * @param pdfFileName Filename to use in the attachment
+     * @return true if successful, false otherwise
+     */
+    private boolean embedPdfInUBL(String ublFilePath, String pdfFilePath, String pdfFileName) {
+        try {
+            // Read PDF file and encode to base64
+            File pdfFile = new File(pdfFilePath);
+            if (!pdfFile.exists()) {
+                System.err.println("PDF file not found: " + pdfFilePath);
+                return false;
+            }
+
+            byte[] pdfBytes = new byte[(int) pdfFile.length()];
+            try (FileInputStream fis = new FileInputStream(pdfFile)) {
+                fis.read(pdfBytes);
+            }
+            String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
+
+            // Parse UBL XML
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            dbf.setNamespaceAware(true);
+            DocumentBuilder db = dbf.newDocumentBuilder();
+            Document doc = db.parse(new File(ublFilePath));
+
+            Element root = doc.getDocumentElement();
+            String cacNamespace = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
+            String cbcNamespace = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
+
+            // Create AdditionalDocumentReference element
+            Element additionalDocRef = doc.createElementNS(cacNamespace, "cac:AdditionalDocumentReference");
+
+            // Add ID element
+            Element id = doc.createElementNS(cbcNamespace, "cbc:ID");
+            id.setTextContent("PDF_Invoice");
+            additionalDocRef.appendChild(id);
+
+            // Create Attachment element
+            Element attachment = doc.createElementNS(cacNamespace, "cac:Attachment");
+
+            // Create EmbeddedDocumentBinaryObject element
+            Element embeddedDoc = doc.createElementNS(cbcNamespace, "cbc:EmbeddedDocumentBinaryObject");
+            embeddedDoc.setAttribute("mimeCode", "application/pdf");
+            embeddedDoc.setAttribute("filename", pdfFileName);
+            embeddedDoc.setTextContent(base64Pdf);
+
+            attachment.appendChild(embeddedDoc);
+            additionalDocRef.appendChild(attachment);
+
+            // Insert AdditionalDocumentReference after the last existing one or before UBLExtensions if no references exist
+            NodeList existingRefs = root.getElementsByTagNameNS(cacNamespace, "AdditionalDocumentReference");
+            if (existingRefs.getLength() > 0) {
+                // Insert after the last existing reference
+                Node lastRef = existingRefs.item(existingRefs.getLength() - 1);
+                Node nextSibling = lastRef.getNextSibling();
+                if (nextSibling != null) {
+                    root.insertBefore(additionalDocRef, nextSibling);
+                } else {
+                    root.appendChild(additionalDocRef);
+                }
+            } else {
+                // Insert before AccountingSupplierParty or at a reasonable position
+                NodeList supplierParty = root.getElementsByTagNameNS(cacNamespace, "AccountingSupplierParty");
+                if (supplierParty.getLength() > 0) {
+                    root.insertBefore(additionalDocRef, supplierParty.item(0));
+                } else {
+                    // Just append to root
+                    root.appendChild(additionalDocRef);
+                }
+            }
+
+            // Write modified UBL back to file
+            TransformerFactory tf = TransformerFactory.newInstance();
+            Transformer transformer = tf.newTransformer();
+            transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
+            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+ 
+            DOMSource source = new DOMSource(doc);
+            StreamResult result = new StreamResult(new File(ublFilePath));
+            transformer.transform(source, result);
+
+            return true;
+
+        } catch (Exception e) {
+            System.err.println("Error embedding PDF in UBL: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
     @Override
     public Integer call() throws Exception {
 
@@ -430,29 +526,7 @@ public class CustomUBL implements Callable<Integer> {
                             aTransformer.transform(src, outputTarget);
                             is = new ByteArrayInputStream(outputStream.toByteArray());
 
-                            if (pParamType.equals("UBL") || pParamType.equals("BOTH")) {
-                                String ublFile = pDirOutput + docName + "_ubl.xml";
-                                if (!convertToUBL(is, ublFile)) {
-                                    insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
-                                            (Element) element,
-                                            "ERREUR CREATION UBL");
-                                } else {
-                                    Document ublDoc = parseUBLFile(ublFile);
-                                    UBLValidator ublValidator = new UBLValidator(pXsdPath, pSchematronPath);
-                                    ValidationResult validResult = ublValidator.validateUbl(ublDoc);
-                                    if (!validResult.isValid()) {
-                                        for (ValidationError e : validResult.getErrors()) {
-                                            // Format: " ** SEVERITY ** SOURCE ** RULE_ID : MESSAGE"
-                                            String ruleId = e.getRuleId() != null ? e.getRuleId() : "";
-                                            System.out.println(" ** " + e.getSeverity() + " ** " + e.getSource() + " ** " + ruleId + " : " + e.getMessage());
-                                        }
-                                    } else {
-                                        System.out.println(" ** SUCCESS ** UBL ** " + typePiece + " : validation successful for " + docName);
-                                    }
-                                }
-                            }
-
-                            if (pParamType.equals("BURST") || pParamType.equals("BOTH")) {
+                            if (pParamType.equals("BURST") || pParamType.equals("BOTH") || (pAttachment != null && pAttachment.equals("create"))) {
                                 // Recreate InputStream for PDF generation (consumed by UBL in BOTH mode)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
 
@@ -476,6 +550,44 @@ public class CustomUBL implements Callable<Integer> {
 
                                 }
 
+                            }
+
+                            if (pParamType.equals("UBL") || pParamType.equals("BOTH")) {
+                                // Recreate InputStream for UBL conversion (may have been consumed by PDF/XML generation)
+                                is = new ByteArrayInputStream(outputStream.toByteArray());
+                                
+                                String ublFile = pDirOutput + docName + "_ubl.xml";
+                                if (!convertToUBL(is, ublFile)) {
+                                    insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
+                                            (Element) element,
+                                            "ERREUR CREATION UBL");
+                                } else {
+                                    // Add PDF attachment if required
+                                    if (pAttachment != null && (pAttachment.equals("create") || pAttachment.equals("attach"))) {
+                                        String pdfFile = pDirInput + docName + ".pdf";
+                                        if (pAttachment.equals("create")) 
+                                            pdfFile = pDirOutput + docName + ".pdf";
+                                           
+                                        String pdfFileName = docName + ".pdf";
+                                        if (!embedPdfInUBL(ublFile, pdfFile, pdfFileName)) {
+                                            System.err.println(" ** WARNING ** UBL ** Attachment : Could not embed PDF attachment in UBL for " + docName);
+                                        } else {
+                                            System.out.println(" ** SUCCESS ** UBL ** ** Attachment : PDF attachment embedded in UBL for " + docName);
+                                        }
+                                    }
+                                    
+                                    Document ublDoc = parseUBLFile(ublFile);
+                                    ValidationResult validResult = pUBLValidator.validateUbl(ublDoc);
+                                    if (!validResult.isValid()) {
+                                        for (ValidationError e : validResult.getErrors()) {
+                                            // Format: " ** SEVERITY ** SOURCE ** RULE_ID : MESSAGE"
+                                            String ruleId = e.getRuleId() != null ? e.getRuleId() : "";
+                                            System.out.println(" ** " + e.getSeverity() + " ** " + e.getSource() + " ** " + ruleId + " : " + e.getMessage());
+                                        }
+                                    } else {
+                                        System.out.println(" ** SUCCESS ** UBL ** " + typePiece + " : validation successful for " + docName);
+                                    }
+                                }
                             }
                         }
 

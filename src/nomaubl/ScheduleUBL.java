@@ -29,6 +29,7 @@ import org.simpleframework.xml.Serializer;
 import org.simpleframework.xml.core.Persister;
 import custom.resources.*;
 import custom.ubl.CustomUBL;
+import custom.ubl.UBLValidator;
 
 import static custom.resources.Tools.decodePasswd;
 import static custom.resources.Tools.encodePasswd;
@@ -72,6 +73,8 @@ public class ScheduleUBL {
     private static String pDevXSL;
     private static String errorMessage = " ";
     private static Integer errorCode = 0;
+    private static String pXsdPath;
+    private static String pSchematronPath;
     
     /* Remplacement des variables dans les emplacements de fichier */
     private static String replaceConstValue (String inputStr) {
@@ -110,7 +113,9 @@ public class ScheduleUBL {
             pSetLocale = resource.getProperty("setLocale");
             pDevMode = resource.getProperty("devModeYN");
             pDevXSL = replaceConstValue(resource.getProperty("devXSL"));
-             
+            pXsdPath = replaceConstValue(resource.getProperty("ublXsdPath"));
+            pSchematronPath = replaceConstValue(resource.getProperty("ublSchematronPath"));
+
             // Création des répertoires
             FileUtils.forceMkdir(new File(pDirOutput));
             FileUtils.forceMkdir(new File(pTempOutput));
@@ -400,16 +405,7 @@ public class ScheduleUBL {
                 insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
                 System.exit(1);               
             }
-            
-            // Debug: Write XSL output to file for inspection
-            try {
-                FileOutputStream debugXsl = new FileOutputStream("converted.xsl");
-                xslOutStream.writeTo(debugXsl);
-                debugXsl.close();
-            } catch (IOException e) {
-                System.err.println("Warning: Could not write debug XSL file: " + e.getMessage());
-            }
-            
+                       
             if (paramType.equals("SINGLE")) {
                  if (pDevMode.equals("Y")) {
                     transformXSLToXML(inputXML,tempXML3,pDevXSL);
@@ -470,11 +466,17 @@ public class ScheduleUBL {
         
                 int splitInvoiceNumber = numberOfInvoice / numberOfSplit;
                 int splitMod = numberOfInvoice % numberOfSplit;
+
+                UBLValidator ublValidator = null;
+
+                if (paramType.equals("UBL") || paramType.equals("BOTH")) {
+                    ublValidator = new UBLValidator(pXsdPath, pSchematronPath);
+                }
                 
                 for (int i=0; i<numberOfSplit; i++){
-                    tasks.add(new CustomUBL(i*splitInvoiceNumber,splitInvoiceNumber+(splitInvoiceNumber*i),list,xslOutStream,paramTemplate,paramFile,paramConfig, paramType));
+                    tasks.add(new CustomUBL(i*splitInvoiceNumber,splitInvoiceNumber+(splitInvoiceNumber*i),list,xslOutStream,paramTemplate,paramFile,paramConfig, paramType, ublValidator));
                 }
-                tasks.add(new CustomUBL(numberOfInvoice-splitMod,numberOfInvoice,list,xslOutStream,paramTemplate,paramFile, paramConfig, paramType));
+                tasks.add(new CustomUBL(numberOfInvoice-splitMod,numberOfInvoice,list,xslOutStream,paramTemplate,paramFile, paramConfig, paramType, ublValidator));
         
                 ExecutorService execute = Executors.newFixedThreadPool(processorCount);
                 runTasks(execute, tasks);
@@ -513,7 +515,7 @@ public class ScheduleUBL {
         Mode updUser = mise à jour de l'utilisateur E1 dans les travaux soumis
     */
     public static void main(String[] args) throws Exception{
-        
+               
         String paramMode = args[0];
         String paramConfig = args[1];
         

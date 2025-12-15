@@ -13,6 +13,9 @@ import com.jcraft.jsch.Session;
 import custom.resources.Resource;
 import custom.resources.Resources;
 import custom.resources.Template;
+import custom.ubl.UBLValidator;
+import custom.ubl.ValidationError;
+import custom.ubl.ValidationResult;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
@@ -23,10 +26,13 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.simpleframework.xml.Serializer;
 import org.simpleframework.xml.core.Persister;
+import org.w3c.dom.Document;
 import static custom.resources.Tools.decodePasswd;
 import static custom.resources.Tools.infoBox;
 import static nomaubl.ScheduleUBL.GenerateReport;
@@ -61,6 +67,8 @@ public class MainModern extends JFrame {
     private JButton bUblInputFile, bValidateUbl;
     private JTable tableUblResults;
     private DefaultTableModel tableModelUblResults;
+    private JRadioButton rbSourceXml, rbSourceUbl;
+    private ButtonGroup bgSourceType;
     
     // Database XML extraction components
     private JTextField txDbFedoc, txDbFedct, txDbKco, txDbOutputPath;
@@ -222,9 +230,24 @@ public class MainModern extends JFrame {
         gbc.insets = new Insets(8, 8, 8, 8);
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
-        // File selection
+        // Source type selection
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 0;
-        inputPanel.add(new JLabel("XML File:"), gbc);
+        inputPanel.add(new JLabel("Source Type:"), gbc);
+        
+        gbc.gridx = 1; gbc.weightx = 0; gbc.gridwidth = 2;
+        JPanel sourceTypePanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        rbSourceXml = new JRadioButton("XML (transform to UBL)", true);
+        rbSourceUbl = new JRadioButton("UBL (validate directly)");
+        bgSourceType = new ButtonGroup();
+        bgSourceType.add(rbSourceXml);
+        bgSourceType.add(rbSourceUbl);
+        sourceTypePanel.add(rbSourceXml);
+        sourceTypePanel.add(rbSourceUbl);
+        inputPanel.add(sourceTypePanel, gbc);
+
+        // File selection
+        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0; gbc.gridwidth = 1;
+        inputPanel.add(new JLabel("Input File:"), gbc);
         
         gbc.gridx = 1; gbc.weightx = 1;
         txUblFileName = new JTextField();
@@ -233,12 +256,12 @@ public class MainModern extends JFrame {
         inputPanel.add(txUblFileName, gbc);
         
         gbc.gridx = 2; gbc.weightx = 0;
-        bUblInputFile = createButton("📁 Browse...", "Select input XML file");
+        bUblInputFile = createButton("📁 Browse...", "Select input file (XML or UBL)");
         bUblInputFile.addActionListener(e -> selectUblInputFile());
         inputPanel.add(bUblInputFile, gbc);
 
         // Validate button
-        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 3; gbc.anchor = GridBagConstraints.CENTER;
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 3; gbc.anchor = GridBagConstraints.CENTER;
         bValidateUbl = createButton("✓ Validate UBL", "Validate UBL document (Ctrl+V)");
         bValidateUbl.setPreferredSize(new Dimension(180, 40));
         bValidateUbl.addActionListener(e -> validateUbl());
@@ -751,7 +774,8 @@ public class MainModern extends JFrame {
             return;
         }
 
-        if (cbTemplate.getSelectedItem() == null) {
+        // Template is only required for XML source type
+        if (rbSourceXml.isSelected() && cbTemplate.getSelectedItem() == null) {
             JOptionPane.showMessageDialog(this,
                 "Please select a template.",
                 "Template Required",
@@ -767,6 +791,14 @@ public class MainModern extends JFrame {
             @Override
             protected String doInBackground() throws Exception {
                 File fileInput = new File(txUblFileName.getText());
+                
+                // Check if source is UBL - validate directly
+                if (rbSourceUbl.isSelected()) {
+                    // Direct UBL validation without transformation
+                    return validateUblDirectly(fileInput);
+                }
+                
+                // Source is XML - need to transform first
                 String fileName = FilenameUtils.getBaseName(fileInput.getName());
                 String templateName = (String) cbTemplate.getSelectedItem();
                 // Extract template name (before " - ")
@@ -927,6 +959,64 @@ public class MainModern extends JFrame {
         };
         
         worker.execute();
+    }
+
+    /**
+     * Validates a UBL file directly without transformation
+     */
+    private String validateUblDirectly(File ublFile) {
+        StringBuilder output = new StringBuilder();
+        
+        try {
+            // Get validation configuration from config file
+            File file = new File(paramConfig);
+            Serializer serializer = new Persister();
+            Resources resources = serializer.read(Resources.class, file);
+            Resource resource = resources.getResourceByName("global");
+            
+            String pAppHome = resource.getProperty("appHome");
+            String pProcessHome = resource.getProperty("processHome");
+            String pXsdPath = resource.getProperty("ublXsdPath")
+                .replace("%APP_HOME%", pAppHome)
+                .replace("%PROCESS_HOME%", pProcessHome);
+            String pSchematronPath = resource.getProperty("ublSchematronPath")
+                .replace("%APP_HOME%", pAppHome)
+                .replace("%PROCESS_HOME%", pProcessHome);
+            
+            // Parse UBL document
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document ublDoc = builder.parse(ublFile);
+            
+            // Validate using UBLValidator
+            UBLValidator ublValidator = new UBLValidator(pXsdPath, pSchematronPath);
+            ValidationResult validResult = ublValidator.validateUbl(ublDoc);
+            
+            if (!validResult.isValid()) {
+                for (ValidationError e : validResult.getErrors()) {
+                    // Format: " ** SEVERITY ** SOURCE ** RULE_ID : MESSAGE"
+                    String ruleId = e.getRuleId() != null ? e.getRuleId() : "";
+                    output.append(" ** ")
+                          .append(e.getSeverity())
+                          .append(" ** ")
+                          .append(e.getSource())
+                          .append(" ** ")
+                          .append(ruleId)
+                          .append(" : ")
+                          .append(e.getMessage())
+                          .append("\n");
+                }
+            } else {
+                output.append(" ** SUCCESS ** UBL ** ").append(ublFile.getName())
+                      .append(" : UBL validation successful\n");
+            }
+            
+        } catch (Exception e) {
+            return "ERROR:" + e.getMessage();
+        }
+        
+        return output.toString();
     }
 
     private void selectDbOutputDirectory() {
@@ -1224,7 +1314,7 @@ public class MainModern extends JFrame {
         statusLabel.setText("Loaded " + model.getSize() + " templates from " + new File(pConfig).getName());
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) {      
         // Set VS Code dark theme
         DarkTheme.apply();
 
