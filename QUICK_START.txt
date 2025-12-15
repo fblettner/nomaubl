@@ -1,0 +1,272 @@
+╔══════════════════════════════════════════════════════════════╗
+║              NomaUBL Modern UI - Quick Start                 ║
+║                    (5 Modern Interfaces)                     ║
+╚══════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────┐
+│ 1. BUILD THE PROJECT                                         │
+└──────────────────────────────────────────────────────────────┘
+
+  ./test/build_modern.sh
+
+  This compiles all source files with FlatLaf support.
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 2. RUN THE APPLICATIONS                                      │
+└──────────────────────────────────────────────────────────────┘
+
+  🎯 Main Interface (Report Generator)
+  ────────────────────────────────────
+    ./test/run_modern_gui.sh
+    
+    OR with custom config:
+    ./test/run_modern_gui.sh /path/to/config.properties
+
+  ⚙️  Configuration Manager
+  ─────────────────────────
+    ./test/run_modern_config.sh
+
+  📦 Classic Command Line
+  ───────────────────────
+    java -jar nomaubl.jar -run ./test/config/config.properties \
+         invoice 3911372_RI_00001 BURST 1
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 3. MAIN INTERFACE FEATURES                                   │
+└──────────────────────────────────────────────────────────────┘
+
+  TAB 1: Generate Report
+  ─────────────────────────────────────
+    1. Select template from dropdown
+    2. Click "Browse" to select input XML file
+    3. Choose mode: SINGLE or BURST
+    4. Click "Generate Report"
+    5. Wait for success message
+    
+    Keyboard: Ctrl+O (open file), Ctrl+G (generate)
+
+  TAB 2: Get File from Server
+  ─────────────────────────────────────
+    1. Enter Report name
+    2. Enter Version
+    3. Enter Language (default: FR)
+    4. Enter Job Number
+    5. Click "Download File"
+    6. Wait for success message
+    
+    Keyboard: Ctrl+D (download)
+
+  SETTINGS
+  ─────────────────────────────────────
+    Click "Settings" button or press Ctrl+,
+    Opens modern configuration manager
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 4. CONFIGURATION MANAGER FEATURES                            │
+└──────────────────────────────────────────────────────────────┘
+
+  OPEN CONFIG
+  ─────────────────────────────────────
+    1. Click "Open Config" or press Ctrl+O
+    2. Select .properties file
+    3. Templates load automatically
+
+  MANAGE TEMPLATES
+  ─────────────────────────────────────
+    • Add:    Click "Add" or press Ctrl+N
+    • Edit:   Double-click template row
+    • Copy:   Select row, click "Copy" or Ctrl+D
+    • Remove: Select row, click "Remove" or Delete
+    
+  SEARCH
+  ─────────────────────────────────────
+    Type in search box to filter templates instantly
+
+  REFRESH
+  ─────────────────────────────────────
+    Click "Refresh" or press F5 to reload config
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 5. KEYBOARD SHORTCUTS                                        │
+└──────────────────────────────────────────────────────────────┘
+
+  Main Interface:
+    Ctrl+,     Open settings
+    Ctrl+Q     Exit application
+    Ctrl+O     Browse for file
+    Ctrl+G     Generate report (Tab 1)
+    Ctrl+D     Download file (Tab 2)
+
+  Configuration Manager:
+    Ctrl+O     Open config file
+    Ctrl+N     Add new template
+    Ctrl+D     Copy template
+    Delete     Remove template
+    F5         Refresh config
+    Esc        Close window
+    Enter      Edit selected template
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 6. TYPICAL WORKFLOWS                                         │
+└──────────────────────────────────────────────────────────────┘
+
+  📄 Generate a Report
+  ─────────────────────────────────────
+    1. Launch: ./test/run_modern_gui.sh
+    2. Select template (e.g., "invoice")
+    3. Browse and select input XML
+    4. Choose mode (SINGLE/BURST)
+    5. Click "Generate Report"
+    6. Check status bar for completion
+
+  📥 Download from Server
+  ─────────────────────────────────────
+    1. Launch: ./test/run_modern_gui.sh
+    2. Switch to "Get File from Server" tab
+    3. Fill in: Report, Version, Language, Job
+    4. Click "Download File"
+    5. File appears in configured input directory
+
+  ⚙️  Configure Templates
+  ─────────────────────────────────────
+    1. Launch: ./test/run_modern_config.sh
+    2. Open config.properties
+    3. Search/filter templates if needed
+    4. Double-click to edit
+    5. Modify settings in dialog
+    6. Click Save
+
+  ➕ Add New Template
+  ─────────────────────────────────────
+    1. Open config manager
+    2. Load config file
+    3. Click "Add" or press Ctrl+N
+    4. Enter template name
+    5. Configure all settings
+    6. Click Save
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 7. FILE LOCATIONS                                            │
+└──────────────────────────────────────────────────────────────┘
+
+  Configuration:
+    ./test/config/config.properties
+
+  Input Files:
+    ./test/input/
+
+  Templates:
+    ./test/template/
+
+  Output:
+    ./test/process/ (or configured location)
+
+  Build:
+    ./build/
+
+  Libraries:
+    ./lib/ (includes flatlaf-3.5.2.jar)
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 8. ALL MODERN INTERFACES                                     │
+└──────────────────────────────────────────────────────────────┘
+
+  1. MainModern              → Report generator (2 tabs)
+  2. ManageConfigModern      → Configuration manager (search)
+  3. ManageGlobalModern      → Global settings (4 tabs)
+  4. ManageTemplateModern    → Template editor (3 tabs)
+  5. GetXMLModern            → File downloader (SFTP)
+
+  ALL FEATURE:
+    ✨ Modern flat design
+    ⌨️  Full keyboard shortcuts
+    📊 Real-time status feedback
+    💡 Comprehensive tooltips
+    🎯 Organized tabs
+    💾 Change tracking
+    ⚡ Async operations (no blocking)
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 9. WHAT'S DIFFERENT?                                         │
+└──────────────────────────────────────────────────────────────┘
+
+  Old Interface          →  Modern Interface
+  ──────────────────────────────────────────────────────────
+  Nimbus LAF            →  FlatLaf modern design
+  No search             →  Live search/filter
+  No shortcuts          →  Full keyboard support
+  No feedback           →  Real-time status bar
+  Mixed layout          →  Organized tabs
+  Blocking operations   →  Async with progress
+  Basic tooltips        →  Comprehensive hints
+  Generic errors        →  User-friendly messages
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 10. TROUBLESHOOTING                                          │
+└──────────────────────────────────────────────────────────────┘
+
+  Build Errors?
+    → Ensure JDK 1.8+ installed: java -version
+    → Check all JARs present: ls lib/*.jar | wc -l
+    → Re-run: ./test/build_modern.sh
+
+  UI Looks Old?
+    → Check FlatLaf JAR: ls lib/flatlaf*.jar
+    → Rebuild: ./test/build_modern.sh
+
+  Can't Open Config?
+    → Verify file exists: ls test/config/config.properties
+    → Check file permissions
+    → Check XML format validity
+
+  Report Generation Fails?
+    → Ensure input file is valid XML
+    → Check template exists in config
+    → Verify output directory writable
+    → Check logs for detailed errors
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 11. DOCUMENTATION                                            │
+└──────────────────────────────────────────────────────────────┘
+
+  README.md              → Project overview
+  MODERNIZATION.md       → Config manager modernization
+  MAIN_MODERN.md         → Main interface modernization
+  TEMPLATE_MODERN.md     → Template editor modernization
+  GETXML_MODERN.md       → File downloader modernization
+  IMPROVEMENTS.md        → Before/after comparison
+  QUICK_REFERENCE.txt    → Config manager shortcuts
+  THIS FILE              → Complete quick start guide
+
+
+┌──────────────────────────────────────────────────────────────┐
+│ 12. SUPPORT & RESOURCES                                      │
+└──────────────────────────────────────────────────────────────┘
+
+  Documentation:
+    https://docs.nomana-it.fr/
+
+  Copyright:
+    © 2018-2025 NOMANA-IT
+
+  License:
+    Subject to license terms
+
+
+╔══════════════════════════════════════════════════════════════╗
+║  TIP: All modern interfaces have tooltips - just hover!     ║
+║  Press F1 for help • Press ESC to close • Ctrl+Q to exit   ║
+╚══════════════════════════════════════════════════════════════╝
+
+
+                    🎉 Enjoy NomaUBL Modern! 🎉
