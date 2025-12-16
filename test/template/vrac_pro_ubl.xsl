@@ -167,7 +167,7 @@
                     <!-- VAT -->
                     <xsl:call-template name="ubl:party-tax-vat">
                         <xsl:with-param name="vat" select="$supplierVat" />
-                        <xsl:with-param name="missingMarker" select="'**MISSING_BT-31_VAT**'" />
+                        <xsl:with-param name="missingMarker" select="'FR01572126043'" />
                     </xsl:call-template>
 
                     <!-- PartyLegalEntity -->
@@ -180,7 +180,7 @@
                         <!-- supplier SIREN -->
                         <xsl:call-template name="ubl:company-siren">
                             <xsl:with-param name="siren" select="$supplierSiren" />
-                            <xsl:with-param name="missingMarker" select="'**MISSING_BT-30_SIREN**'" />
+                            <xsl:with-param name="missingMarker" select="'572126043'" />
                         </xsl:call-template>
 
                         <!-- supplier Legal Form -->

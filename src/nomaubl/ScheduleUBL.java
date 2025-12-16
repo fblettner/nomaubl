@@ -30,6 +30,7 @@ import org.simpleframework.xml.core.Persister;
 import custom.resources.*;
 import custom.ubl.CustomUBL;
 import custom.ubl.UBLValidator;
+import custom.ubl.TokenManager;
 
 import static custom.resources.Tools.decodePasswd;
 import static custom.resources.Tools.encodePasswd;
@@ -75,6 +76,12 @@ public class ScheduleUBL {
     private static Integer errorCode = 0;
     private static String pXsdPath;
     private static String pSchematronPath;
+    private static String pSendToPA;
+    private static String pPaApiBaseUrl;
+    private static String pPaApiLoginEndpoint;
+    private static String pPaApiUsername;
+    private static String pPaApiPassword;
+    private static int pPaApiTimeout;
     
     /* Remplacement des variables dans les emplacements de fichier */
     private static String replaceConstValue (String inputStr) {
@@ -115,6 +122,15 @@ public class ScheduleUBL {
             pDevXSL = replaceConstValue(resource.getProperty("devXSL"));
             pXsdPath = replaceConstValue(resource.getProperty("ublXsdPath"));
             pSchematronPath = replaceConstValue(resource.getProperty("ublSchematronPath"));
+            
+            // PA API configuration
+            pSendToPA = resource.getProperty("sendToPA");
+            pPaApiBaseUrl = resource.getProperty("paApiBaseUrl");
+            pPaApiLoginEndpoint = resource.getProperty("paApiLoginEndpoint");
+            pPaApiUsername = resource.getProperty("paApiUsername");
+            pPaApiPassword = resource.getProperty("paApiPassword");
+            String timeout = resource.getProperty("paApiTimeout");
+            pPaApiTimeout = (timeout != null) ? Integer.parseInt(timeout) : 30000;
 
             // Création des répertoires
             FileUtils.forceMkdir(new File(pDirOutput));
@@ -468,15 +484,27 @@ public class ScheduleUBL {
                 int splitMod = numberOfInvoice % numberOfSplit;
 
                 UBLValidator ublValidator = null;
+                TokenManager tokenManager = null;
 
-                if (paramType.equals("UBL") || paramType.equals("BOTH")) {
+                if (paramType.equals("UBL") || paramType.equals("BOTH") || paramType.equals("UBL_VALIDATE")) {
                     ublValidator = new UBLValidator(pXsdPath, pSchematronPath);
+                    
+                    // Initialize TokenManager if sending to PA is enabled (not for validation-only mode)
+                    if (!paramType.equals("UBL_VALIDATE") && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA))) {
+                        tokenManager = new TokenManager(pPaApiBaseUrl, pPaApiLoginEndpoint, 
+                                                        pPaApiUsername, pPaApiPassword, pPaApiTimeout);
+                        // Pre-fetch token to fail early if credentials are wrong
+                        String initialToken = tokenManager.getToken();
+                        if (initialToken == null) {
+                            throw new Exception("Failed to authenticate with PA API - check credentials");
+                        }
+                    }
                 }
                 
                 for (int i=0; i<numberOfSplit; i++){
-                    tasks.add(new CustomUBL(i*splitInvoiceNumber,splitInvoiceNumber+(splitInvoiceNumber*i),list,xslOutStream,paramTemplate,paramFile,paramConfig, paramType, ublValidator));
+                    tasks.add(new CustomUBL(i*splitInvoiceNumber,splitInvoiceNumber+(splitInvoiceNumber*i),list,xslOutStream,paramTemplate,paramFile,paramConfig, paramType, ublValidator, tokenManager));
                 }
-                tasks.add(new CustomUBL(numberOfInvoice-splitMod,numberOfInvoice,list,xslOutStream,paramTemplate,paramFile, paramConfig, paramType, ublValidator));
+                tasks.add(new CustomUBL(numberOfInvoice-splitMod,numberOfInvoice,list,xslOutStream,paramTemplate,paramFile, paramConfig, paramType, ublValidator, tokenManager));
         
                 ExecutorService execute = Executors.newFixedThreadPool(processorCount);
                 runTasks(execute, tasks);

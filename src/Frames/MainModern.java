@@ -70,6 +70,10 @@ public class MainModern extends JFrame {
     private JRadioButton rbSourceXml, rbSourceUbl;
     private ButtonGroup bgSourceType;
     
+    // Generate Report validation results
+    private JTable tableGenerateResults;
+    private DefaultTableModel tableModelGenerateResults;
+    
     // Database XML extraction components
     private JTextField txDbFedoc, txDbFedct, txDbKco, txDbOutputPath;
     private JButton bExtractXml, bBrowseDbOutput;
@@ -214,7 +218,81 @@ public class MainModern extends JFrame {
         bGenerateReport.addActionListener(e -> generateReport());
         actionPanel.add(bGenerateReport);
 
-        panel.add(actionPanel, BorderLayout.CENTER);
+        // Results area - Table (for UBL/BOTH modes)
+        JPanel resultsPanel = new JPanel(new BorderLayout());
+        resultsPanel.setBorder(createTitledBorder("Validation Results"));
+        
+        String[] columnNames = {"Severity", "Source", "Rule ID", "Message"};
+        tableModelGenerateResults = new DefaultTableModel(columnNames, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+        };
+        
+        tableGenerateResults = new JTable(tableModelGenerateResults);
+        tableGenerateResults.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        tableGenerateResults.getColumnModel().getColumn(0).setPreferredWidth(100);  // Severity
+        tableGenerateResults.getColumnModel().getColumn(1).setPreferredWidth(150); // Source
+        tableGenerateResults.getColumnModel().getColumn(2).setPreferredWidth(200); // Rule ID
+        tableGenerateResults.getColumnModel().getColumn(3).setPreferredWidth(550); // Message
+        tableGenerateResults.getTableHeader().setReorderingAllowed(false);
+        
+        // Use HTML renderer for multi-line display
+        tableGenerateResults.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                    boolean isSelected, boolean hasFocus, int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                
+                if (value != null) {
+                    String text = value.toString();
+                    setText("<html><div style='width: " + (table.getColumnModel().getColumn(column).getWidth() - 10) + "px;'>" 
+                        + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>") 
+                        + "</div></html>");
+                }
+                
+                // Color coding based on severity
+                if (column == 0 && value != null) {
+                    String severity = value.toString();
+                    if (severity.equals("ERROR") || severity.equals("FATAL")) {
+                        setForeground(new Color(220, 53, 69));
+                        setFont(getFont().deriveFont(Font.BOLD));
+                    } else if (severity.equals("WARNING")) {
+                        setForeground(new Color(255, 193, 7));
+                        setFont(getFont().deriveFont(Font.BOLD));
+                    } else if (severity.equals("SUCCESS")) {
+                        setForeground(new Color(40, 167, 69));
+                        setFont(getFont().deriveFont(Font.BOLD));
+                    } else {
+                        setForeground(table.getForeground());
+                        setFont(getFont().deriveFont(Font.PLAIN));
+                    }
+                } else {
+                    setForeground(table.getForeground());
+                    setFont(getFont().deriveFont(Font.PLAIN));
+                }
+                
+                if (isSelected) {
+                    setBackground(table.getSelectionBackground());
+                } else {
+                    setBackground(table.getBackground());
+                }
+                
+                return c;
+            }
+        });
+        
+        JScrollPane scrollPane = new JScrollPane(tableGenerateResults);
+        scrollPane.setPreferredSize(new Dimension(600, 200));
+        resultsPanel.add(scrollPane, BorderLayout.CENTER);
+
+        // Container for action and results
+        JPanel centerPanel = new JPanel(new BorderLayout(10, 10));
+        centerPanel.add(actionPanel, BorderLayout.NORTH);
+        centerPanel.add(resultsPanel, BorderLayout.CENTER);
+
+        panel.add(centerPanel, BorderLayout.CENTER);
 
         return panel;
     }
@@ -685,10 +763,12 @@ public class MainModern extends JFrame {
         }
 
         statusLabel.setText("Generating report...");
+        tableModelGenerateResults.setRowCount(0);
+        bGenerateReport.setEnabled(false);
         
-        SwingWorker<Void, Void> worker = new SwingWorker<Void, Void>() {
+        SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
             @Override
-            protected Void doInBackground() throws Exception {
+            protected String doInBackground() throws Exception {
                 File file = new File(paramConfig);
                 Serializer serializer = new Persister();
                 Resources resources = serializer.read(Resources.class, file);
@@ -713,26 +793,117 @@ public class MainModern extends JFrame {
                     mode = mode.substring(0, mode.indexOf(" - "));
                 }
                 
-                GenerateReport(
-                    template,
-                    paramFile,
-                    mode,
-                    "1",
-                    paramConfig
-                );
-
-                return null;
+                // Capture output for UBL/BOTH modes
+                if (mode.equals("UBL") || mode.equals("BOTH")) {
+                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                    java.io.PrintStream ps = new java.io.PrintStream(baos);
+                    java.io.PrintStream oldOut = System.out;
+                    System.setOut(ps);
+                    
+                    try {
+                        GenerateReport(template, paramFile, mode, "1", paramConfig);
+                        System.out.flush();
+                        System.setOut(oldOut);
+                        return baos.toString();
+                    } catch (Exception e) {
+                        System.setOut(oldOut);
+                        return "ERROR:" + e.getMessage() + "\n" + baos.toString();
+                    }
+                } else {
+                    GenerateReport(template, paramFile, mode, "1", paramConfig);
+                    return "SUCCESS";
+                }
             }
 
             @Override
             protected void done() {
                 try {
-                    get();
-                    statusLabel.setText("Report generated successfully");
-                    infoBox("Report generated successfully", "SUCCESS");
+                    String result = get();
+                    
+                    // Extract mode to check if we should parse validation results
+                    String mode = cbMode.getSelectedItem().toString();
+                    if (mode.contains(" - ")) {
+                        mode = mode.substring(0, mode.indexOf(" - "));
+                    }
+                    
+                    if (mode.equals("UBL") || mode.equals("BOTH")) {
+                        // Parse and display validation results
+                        tableModelGenerateResults.setRowCount(0);
+                        
+                        if (result.startsWith("ERROR:")) {
+                            statusLabel.setText("✗ Generation failed");
+                            String[] errorParts = result.substring(6).split("\n", 2);
+                            tableModelGenerateResults.addRow(new Object[]{"FATAL", "System", "", errorParts[0]});
+                        } else if (result.contains(" ** ")) {
+                            int errorCount = 0;
+                            int pos = 0;
+                            
+                            while (pos < result.length()) {
+                                int startPattern = result.indexOf(" ** ", pos);
+                                if (startPattern == -1) break;
+                                
+                                int nextPattern = result.indexOf("\n ** ", startPattern + 4);
+                                String block = nextPattern != -1 ? 
+                                    result.substring(startPattern, nextPattern) : 
+                                    result.substring(startPattern);
+                                
+                                String[] parts = block.split(" \\*\\* ", 4);
+                                if (parts.length >= 4) {
+                                    String severity = parts[1].trim();
+                                    String source = parts[2].trim();
+                                    String[] ruleMsg = parts[3].split(" : ", 2);
+                                    String ruleId = ruleMsg[0].trim();
+                                    String message = ruleMsg.length > 1 ? ruleMsg[1].trim() : "";
+                                    tableModelGenerateResults.addRow(new Object[]{severity, source, ruleId, message});
+                                    if (!severity.equals("SUCCESS") && !severity.equals("INFO")) {
+                                        errorCount++;
+                                    }
+                                }
+                                
+                                pos = nextPattern != -1 ? nextPattern + 1 : result.length();
+                            }
+                            
+                            if (errorCount > 0) {
+                                statusLabel.setText("⚠ Generated with " + errorCount + " validation issue(s)");
+                            } else {
+                                statusLabel.setText("✓ Report generated and validated successfully");
+                            }
+                        } else {
+                            statusLabel.setText("✓ Report generated successfully");
+                            tableModelGenerateResults.addRow(new Object[]{"SUCCESS", "System", "", "Report generated successfully"});
+                        }
+                        
+                        // Adjust row heights dynamically based on content
+                        for (int row = 0; row < tableGenerateResults.getRowCount(); row++) {
+                            int maxHeight = 25;
+                            for (int col = 0; col < tableGenerateResults.getColumnCount(); col++) {
+                                Object value = tableGenerateResults.getValueAt(row, col);
+                                if (value != null) {
+                                    String text = value.toString();
+                                    int columnWidth = tableGenerateResults.getColumnModel().getColumn(col).getWidth();
+                                    
+                                    // Create a temporary JLabel to calculate wrapped height
+                                    JLabel label = new JLabel("<html><div style='width: " + (columnWidth - 10) + "px;'>" 
+                                        + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>") 
+                                        + "</div></html>");
+                                    label.setFont(tableGenerateResults.getFont());
+                                    Dimension preferredSize = label.getPreferredSize();
+                                    maxHeight = Math.max(maxHeight, preferredSize.height + 10);
+                                }
+                            }
+                            tableGenerateResults.setRowHeight(row, maxHeight);
+                        }
+                    } else {
+                        statusLabel.setText("Report generated successfully");
+                        infoBox("Report generated successfully", "SUCCESS");
+                    }
                 } catch (Exception ex) {
+                    tableModelGenerateResults.setRowCount(0);
+                    tableModelGenerateResults.addRow(new Object[]{"FATAL", "System", "", "Error: " + ex.getMessage()});
                     statusLabel.setText("Error generating report");
                     showError("Report cannot be rendered", ex);
+                } finally {
+                    bGenerateReport.setEnabled(true);
                 }
             }
         };
@@ -827,9 +998,9 @@ public class MainModern extends JFrame {
                 java.io.PrintStream oldOut = System.out;
                 System.setOut(ps);
                 
-                // Run validation with UBL mode
+                // Run validation with UBL_VALIDATE mode (validation only, no PA sending)
                 try {
-                    GenerateReport(templateName, fileName, "UBL", "1", paramConfig);
+                    GenerateReport(templateName, fileName, "UBL_VALIDATE", "1", paramConfig);
                     System.out.flush();
                     System.setOut(oldOut);
                     String output = baos.toString();
@@ -1251,10 +1422,6 @@ public class MainModern extends JFrame {
         replaceStr = replaceStr.replace(TEMPLATE, template);
         replaceStr = replaceStr.replace(FILE_NAME, paramFile);
         return replaceStr;
-    }
-
-    private String replaceScpConstValue(String inputStr) {
-        return inputStr.replace(TEMPLATE, "");
     }
 
     private void showError(String message, Exception ex) {

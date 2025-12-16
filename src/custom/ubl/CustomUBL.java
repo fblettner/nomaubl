@@ -28,6 +28,11 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import oracle.xdo.XDOException;
 import oracle.xdo.template.FOProcessor;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 public class CustomUBL implements Callable<Integer> {
 
@@ -72,7 +77,13 @@ public class CustomUBL implements Callable<Integer> {
     private static String pXdoConfig;
     private String pUblXsltPath;
     private UBLValidator pUBLValidator;
+    private TokenManager pTokenManager;
     private String pAttachment;
+    private String pSendToPA;
+    private String pPaMode;
+    private String pPaApiBaseUrl;
+    private String pPaApiImportEndpoint;
+    private int pPaApiTimeout;
 
     private String replaceConstValue(String inputStr) {
         String replaceStr = inputStr.replace(APP_HOME, pAppHome);
@@ -84,7 +95,7 @@ public class CustomUBL implements Callable<Integer> {
 
     // Déclaration des variables
     public CustomUBL(int startI, int endI, NodeList inputNode, ByteArrayOutputStream baos, String inTmpl,
-            String inFileName, String inConfig, String inParamType, UBLValidator inUBLValidator) {
+            String inFileName, String inConfig, String inParamType, UBLValidator inUBLValidator, TokenManager inTokenManager) {
         startInvoice = startI;
         endInvoice = endI;
         list = inputNode;
@@ -94,6 +105,7 @@ public class CustomUBL implements Callable<Integer> {
         configFile = inConfig;
         pParamType = inParamType;
         pUBLValidator = inUBLValidator;
+        pTokenManager = inTokenManager;
     }
 
     // Chargement du fichier de configuration
@@ -135,6 +147,15 @@ public class CustomUBL implements Callable<Integer> {
             pCodeRoutage = resource.getProperty("codeRoutage");
             pUblXsltPath = replaceConstValue(resource.getProperty("ublXslt"));
             pAttachment = resource.getProperty("attachment");
+
+            // Load PA API configuration from global template
+            resource = resources.getResourceByName("global");
+            pSendToPA = resource.getProperty("sendToPA");
+            pPaMode = resource.getProperty("paMode");
+            pPaApiBaseUrl = resource.getProperty("paApiBaseUrl");
+            pPaApiImportEndpoint = resource.getProperty("paApiImportEndpoint");
+            String timeout = resource.getProperty("paApiTimeout");
+            pPaApiTimeout = (timeout != null) ? Integer.parseInt(timeout) : 30000;
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -395,6 +416,85 @@ public class CustomUBL implements Callable<Integer> {
     }
 
     /**
+     * Sends UBL file to the Platform Agréée (PA) via API
+     * @param ublFilePath Path to the UBL XML file
+     * @param docName Document name for logging
+     * @return true if successful, false otherwise
+     */
+    private boolean sendToPlatform(String ublFilePath, String docName) {
+        if (!"API".equalsIgnoreCase(pPaMode)) {
+            System.out.println(" ** INFO ** PA ** Mode not API, skipping send for " + docName);
+            return true;
+        }
+
+        if (pTokenManager == null) {
+            System.err.println(" ** ERROR ** PA ** TokenManager not initialized for " + docName);
+            return false;
+        }
+
+        try {
+            // Read UBL file and encode to base64
+            File ublFile = new File(ublFilePath);
+            byte[] ublBytes = new byte[(int) ublFile.length()];
+            try (FileInputStream fis = new FileInputStream(ublFile)) {
+                fis.read(ublBytes);
+            }
+            String base64Ubl = Base64.getEncoder().encodeToString(ublBytes);
+
+            // Try sending with current token, retry once with refreshed token if 401
+            for (int attempt = 0; attempt < 2; attempt++) {
+                String token = pTokenManager.getToken();
+                if (token == null) {
+                    System.err.println(" ** ERROR ** PA ** Failed to get auth token for " + docName);
+                    return false;
+                }
+
+                HttpClient client = HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofMillis(pPaApiTimeout))
+                        .build();
+
+                String jsonPayload = String.format(
+                    "{\"format\":\"xml_ubl\",\"content\":\"%s\",\"postActions\":[]}",
+                    base64Ubl
+                );
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(pPaApiBaseUrl + pPaApiImportEndpoint))
+                        .timeout(Duration.ofMillis(pPaApiTimeout))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + token)
+                        .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                        .build();
+
+                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    System.out.println(" ** SUCCESS ** UBL ** PA : Document sent successfully: " + docName);
+                    System.out.println(" ** INFO ** UBL ** PA : Response: " + response.body());
+                    return true;
+                } else if (response.statusCode() == 401 && attempt == 0) {
+                    // Token expired, refresh and retry
+                    System.out.println(" ** WARNING ** UBL ** PA : Token expired, refreshing and retrying for " + docName);
+                    pTokenManager.refreshToken();
+                    continue;
+                } else {
+                    System.err.println(" ** ERROR ** UBL ** PA : Failed to send document " + docName + 
+                                       " - Status: " + response.statusCode());
+                    System.err.println(" ** ERROR ** UBL ** PA : Response: " + response.body());
+                    return false;
+                }
+            }
+            
+            return false;
+
+        } catch (Exception e) {
+            System.err.println(" ** ERROR ** UBL ** PA : Exception sending document " + docName + ": " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
      * Embeds a PDF file as base64 in the UBL XML document
      * @param ublFilePath Path to the UBL XML file
      * @param pdfFilePath Path to the PDF file to embed
@@ -552,7 +652,7 @@ public class CustomUBL implements Callable<Integer> {
 
                             }
 
-                            if (pParamType.equals("UBL") || pParamType.equals("BOTH")) {
+                            if (pParamType.equals("UBL") || pParamType.equals("BOTH") || pParamType.equals("UBL_VALIDATE")) {
                                 // Recreate InputStream for UBL conversion (may have been consumed by PDF/XML generation)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
                                 
@@ -562,8 +662,8 @@ public class CustomUBL implements Callable<Integer> {
                                             (Element) element,
                                             "ERREUR CREATION UBL");
                                 } else {
-                                    // Add PDF attachment if required
-                                    if (pAttachment != null && (pAttachment.equals("create") || pAttachment.equals("attach"))) {
+                                    // Add PDF attachment if required (not in validation-only mode)
+                                    if (!pParamType.equals("UBL_VALIDATE") && pAttachment != null && (pAttachment.equals("create") || pAttachment.equals("attach"))) {
                                         String pdfFile = pDirInput + docName + ".pdf";
                                         if (pAttachment.equals("create")) 
                                             pdfFile = pDirOutput + docName + ".pdf";
@@ -579,13 +679,40 @@ public class CustomUBL implements Callable<Integer> {
                                     Document ublDoc = parseUBLFile(ublFile);
                                     ValidationResult validResult = pUBLValidator.validateUbl(ublDoc);
                                     if (!validResult.isValid()) {
+                                        // Display all errors/warnings
                                         for (ValidationError e : validResult.getErrors()) {
                                             // Format: " ** SEVERITY ** SOURCE ** RULE_ID : MESSAGE"
                                             String ruleId = e.getRuleId() != null ? e.getRuleId() : "";
                                             System.out.println(" ** " + e.getSeverity() + " ** " + e.getSource() + " ** " + ruleId + " : " + e.getMessage());
                                         }
+                                        
+                                        // Check if only warnings (no errors)
+                                        boolean hasOnlyWarnings = true;
+                                        for (ValidationError e : validResult.getErrors()) {
+                                            if (!"WARNING".equalsIgnoreCase(e.getSeverity())) {
+                                                hasOnlyWarnings = false;
+                                                break;
+                                            }
+                                        }
+                                        
+                                        // Send to PA if F (force) mode and only warnings (not in validation-only mode)
+                                        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA) && hasOnlyWarnings) {
+                                            System.out.println(" ** INFO ** UBL ** PA : forcing send to PA despite warnings for " + docName);
+                                            if (!sendToPlatform(ublFile, docName)) {
+                                                insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
+                                                        (Element) element, "ERREUR ENVOI PA");
+                                            }
+                                        }
                                     } else {
                                         System.out.println(" ** SUCCESS ** UBL ** " + typePiece + " : validation successful for " + docName);
+                                        
+                                        // Send to PA if enabled (Y or F mode) - not in validation-only mode
+                                        if (!pParamType.equals("UBL_VALIDATE") && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA))) {
+                                            if (!sendToPlatform(ublFile, docName)) {
+                                                insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
+                                                        (Element) element, "ERREUR ENVOI PA");
+                                            }
+                                        }
                                     }
                                 }
                             }
