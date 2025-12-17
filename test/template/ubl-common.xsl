@@ -258,7 +258,8 @@
     </xsl:function>
 
     <!-- Create TaxSubtotal with validation
-         Normalizes amounts and validates tax rate -->
+         Normalizes amounts and validates tax rate
+         BG-23: VAT breakdown -->
     <xsl:template name="ubl:tax-subtotal">
         <xsl:param name="taxableAmount" as="xs:string?" />
         <xsl:param name="taxAmount"
@@ -271,19 +272,23 @@
             name="invalidRateMarker" as="xs:string" select="'**INVALID_TAX_RATE**'" />
         
         <cac:TaxSubtotal>
+            <!-- BT-116: VAT category taxable amount -->
             <cbc:TaxableAmount currencyID="{$currencyID}">
                 <xsl:value-of select="ubl:normalize-amount($taxableAmount)" />
             </cbc:TaxableAmount>
+            <!-- BT-117: VAT category tax amount -->
             <cbc:TaxAmount currencyID="{$currencyID}">
                 <xsl:value-of select="ubl:normalize-amount($taxAmount)" />
             </cbc:TaxAmount>
             <cac:TaxCategory>
+                <!-- BT-118: VAT category code -->
                 <cbc:ID>
                     <xsl:value-of select="$taxID" />
                 </cbc:ID>
                 <xsl:variable name="validatedRate"
                     select="ubl:validate-tax-rate($taxRate, $invalidRateMarker)" />
                 <xsl:if test="ubl:is-not-empty($validatedRate)">
+                    <!-- BT-119: VAT category rate -->
                     <cbc:Percent>
                         <xsl:value-of select="$validatedRate" />
                     </cbc:Percent>
@@ -296,27 +301,30 @@
     </xsl:template>
 
     <!-- Create LegalMonetaryTotal with validation
-         Normalizes amounts and validates tax rate -->
+         Normalizes amounts and validates tax rate
+         BG-22: Document totals -->
     <xsl:template name="ubl:legal-monetary-total">
         <xsl:param name="totalWithoutVAT" as="xs:string?" />
         <xsl:param name="totalWithVAT"
             as="xs:string?" />
         <xsl:param name="currencyID" as="xs:string" />
 
-        <!-- Create  with validation
-         Normalizes amounts and validates tax rate -->
         <cac:LegalMonetaryTotal>
+            <!-- BT-106: Sum of Invoice line net amount -->
             <cbc:LineExtensionAmount currencyID="{$currencyID}">
                 <xsl:value-of select="ubl:normalize-amount($totalWithoutVAT)" />
             </cbc:LineExtensionAmount>
+            <!-- BT-109: Invoice total amount without VAT -->
             <cbc:TaxExclusiveAmount currencyID="{$currencyID}">
                 <xsl:value-of
                     select="ubl:normalize-amount($totalWithoutVAT)" />
             </cbc:TaxExclusiveAmount>
+            <!-- BT-112: Invoice total amount with VAT -->
             <cbc:TaxInclusiveAmount currencyID="{$currencyID}">
                 <xsl:value-of
                     select="ubl:normalize-amount($totalWithVAT)" />
             </cbc:TaxInclusiveAmount>
+            <!-- BT-115: Amount due for payment -->
             <cbc:PayableAmount currencyID="{$currencyID}">
                 <xsl:value-of
                     select="ubl:normalize-amount($totalWithVAT)" />
@@ -324,7 +332,8 @@
         </cac:LegalMonetaryTotal>
     </xsl:template>
 
-    <!-- Create Contract ID if exists -->
+    <!-- Create Contract ID if exists
+         BT-12: Contract reference -->
     <xsl:template name="ubl:contract-id">
         <xsl:param name="contractId" as="xs:string?" />
 
@@ -337,7 +346,8 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Create PartyName if exists -->
+    <!-- Create PartyName if exists
+         BT-28: Seller trading name -->
     <xsl:template name="ubl:party-name">
         <xsl:param name="partyName" as="xs:string?" />
 
@@ -351,7 +361,8 @@
     </xsl:template>
 
     <!-- Create PostalAddress with street, city, postal code, and country
-         Only creates address block if at least one field is non-empty -->
+         Only creates address block if at least one field is non-empty
+         BG-5: Seller postal address / BG-8: Buyer postal address / BG-15: Deliver to address -->
     <xsl:template name="ubl:address">
         <xsl:param name="qname" as="xs:string" />
         <xsl:param name="street" as="xs:string?" />
@@ -368,12 +379,14 @@
             name="defaultCountry" as="xs:string" />
         
             <xsl:element name="{$qname}">
+                <!-- BT-35/50/75: Address line 1 -->
                 <xsl:call-template name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:StreetName'" />
                     <xsl:with-param name="value" select="$street" />
                 </xsl:call-template>
 
                 <!-- Additional street: concatenate street2, street3, street4 with space separator -->
+                <!-- BT-36/51/76: Address line 2 -->
                 <xsl:variable
                     name="additionalStreet"
                     select="normalize-space(concat(normalize-space($street2), ' ', normalize-space($street3), ' ', normalize-space($street4)))" />
@@ -383,18 +396,21 @@
                     <xsl:with-param name="value" select="$additionalStreet" />
                 </xsl:call-template>
 
+                <!-- BT-37/52/77: City -->
                 <xsl:call-template
                     name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:CityName'" />
                     <xsl:with-param name="value" select="$city" />
                 </xsl:call-template>
 
+                <!-- BT-38/53/78: Post code -->
                 <xsl:call-template
                     name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:PostalZone'" />
                     <xsl:with-param name="value" select="$postalCode" />
                 </xsl:call-template>
 
+                <!-- BT-40/55/80: Country code -->
                 <xsl:call-template
                     name="ubl:country">
                     <xsl:with-param name="code" select="$countryCode" />
@@ -404,7 +420,8 @@
 
     </xsl:template>
 
-    <!-- Create Contact -->
+    <!-- Create Contact
+         BG-6: Seller contact -->
     <xsl:template name="ubl:contact">
         <xsl:param name="name" as="xs:string?" />
         <xsl:param name="telephone" as="xs:string?" />
@@ -414,14 +431,17 @@
                   <xsl:if
             test="ubl:is-not-empty($name) or ubl:is-not-empty($telephone) or ubl:is-not-empty($electronicMail)">
             <cac:Contact>
+                <!-- BT-41: Seller contact point -->
                 <xsl:call-template name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:Name'" />
                     <xsl:with-param name="value" select="$name" />
                 </xsl:call-template>
+                <!-- BT-42: Seller contact telephone number -->
                 <xsl:call-template name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:Telephone'" />
                     <xsl:with-param name="value" select="$telephone" />
                 </xsl:call-template>
+                <!-- BT-43: Seller contact email address -->
                 <xsl:call-template name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:ElectronicMail'" />
                     <xsl:with-param name="value" select="$electronicMail" />
@@ -430,7 +450,8 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Create PartyLegalEntity -->
+    <!-- Create PartyLegalEntity
+         BT-44: Buyer name / BT-27: Seller name -->
     <xsl:template name="ubl:party-legal-entity">
         <xsl:param name="customerName" as="xs:string?" />
         <xsl:param name="customerSiren"
@@ -439,11 +460,13 @@
         <xsl:if
             test="ubl:is-not-empty($customerName) or ubl:is-not-empty($customerSiren)">
             <cac:PartyLegalEntity>
+                <!-- BT-44: Buyer name / BT-27: Seller name -->
                 <xsl:call-template name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:RegistrationName'" />
                     <xsl:with-param name="value" select="$customerName" />
                 </xsl:call-template>
 
+                <!-- BT-47: Buyer legal registration identifier / BT-30: Seller legal registration identifier -->
                 <xsl:if test="ubl:is-not-empty($customerSiren)">
                     <xsl:call-template name="ubl:company-siren">
                         <xsl:with-param name="siren" select="$customerSiren" />
@@ -454,7 +477,8 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Create PaymentMeans -->
+    <!-- Create PaymentMeans
+         BG-16: Payment instructions -->
     <xsl:template name="ubl:payment-means">
         <xsl:param name="paymentCode" as="xs:string?" />
         <xsl:param name="iban" as="xs:string?" />
@@ -465,6 +489,7 @@
         <xsl:if
             test="ubl:is-not-empty($paymentCode) or ubl:is-not-empty($iban) or ubl:is-not-empty($swift) or ubl:is-not-empty($supplierName)">
             <cac:PaymentMeans>
+                <!-- BT-81: Payment means type code -->
                 <xsl:if test="ubl:is-not-empty($paymentCode)">
                     <cbc:PaymentMeansCode>
                         <xsl:value-of select="$paymentCode" />
@@ -474,16 +499,19 @@
                 <xsl:if
                     test="ubl:is-not-empty($iban) or ubl:is-not-empty($swift) or ubl:is-not-empty($supplierName)">
                     <cac:PayeeFinancialAccount>
+                        <!-- BT-84: Payment account identifier (IBAN) -->
                         <xsl:call-template name="ubl:emit">
                             <xsl:with-param name="qname" select="'cbc:ID'" />
                             <xsl:with-param name="value" select="$iban" />
                         </xsl:call-template>
 
+                        <!-- BT-85: Payment account name -->
                         <xsl:call-template name="ubl:emit">
                             <xsl:with-param name="qname" select="'cbc:Name'" />
                             <xsl:with-param name="value" select="$supplierName" />
                         </xsl:call-template>
 
+                        <!-- BT-86: Payment service provider identifier (BIC) -->
                         <xsl:if test="ubl:is-not-empty($swift)">
                             <cac:FinancialInstitutionBranch>
                                 <cbc:ID>
@@ -498,16 +526,20 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Create ClassifiedTaxCategory -->
+    <!-- Create ClassifiedTaxCategory
+         BT-151: Invoiced item VAT category code
+         BT-152: Invoiced item VAT rate -->
     <xsl:template name="ubl:classified-tax-category">
         <xsl:param name="id" as="xs:string?" />
         <xsl:param name="percent" as="xs:string?" />
         
         <cac:ClassifiedTaxCategory>
+            <!-- BT-151: Invoiced item VAT category code -->
             <xsl:call-template name="ubl:emit">
                 <xsl:with-param name="qname" select="'cbc:ID'" />
                 <xsl:with-param name="value" select="$id" />
             </xsl:call-template>
+            <!-- BT-152: Invoiced item VAT rate -->
             <xsl:call-template name="ubl:emit">
                 <xsl:with-param name="qname" select="'cbc:Percent'" />
                 <xsl:with-param name="value" select="$percent" />
@@ -521,7 +553,8 @@
         </cac:ClassifiedTaxCategory>
     </xsl:template>
 
-    <!-- Create AdditionalItemProperty -->
+    <!-- Create AdditionalItemProperty
+         BG-32: Item attributes -->
     <xsl:template name="ubl:additional-item-property">
         <xsl:param name="name" as="xs:string?" />
         <xsl:param name="value" as="xs:string?" />
@@ -529,10 +562,12 @@
         <xsl:if
             test="ubl:is-not-empty($value)">
             <cac:AdditionalItemProperty>
+                <!-- BT-160: Item attribute name -->
                 <xsl:call-template name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:Name'" />
                     <xsl:with-param name="value" select="$name" />
                 </xsl:call-template>
+                <!-- BT-161: Item attribute value -->
                 <xsl:call-template name="ubl:emit">
                     <xsl:with-param name="qname" select="'cbc:Value'" />
                     <xsl:with-param name="value" select="$value" />
@@ -541,7 +576,8 @@
         </xsl:if>
     </xsl:template>
 
-    <!-- Create Price -->
+    <!-- Create Price
+         BG-29: Price details -->
     <xsl:template name="ubl:line-price">
         <xsl:param name="unitPrice" as="xs:string?" />
         <xsl:param name="unitCode" as="xs:string?" />
@@ -550,7 +586,7 @@
 
         
         <cac:Price>
-            <!-- PriceAmount: only if non-empty -->
+            <!-- BT-146: Item net price -->
             <xsl:call-template name="ubl:emit-scheme">
                 <xsl:with-param name="qname" select="'cbc:PriceAmount'" />
                 <xsl:with-param name="value" select="ubl:normalize-amount($unitPrice)" />
@@ -558,6 +594,7 @@
                 <xsl:with-param name="codeValue" select="$currencyCode" />
             </xsl:call-template>
 
+            <!-- BT-149: Item price base quantity -->
             <xsl:call-template name="ubl:emit-scheme">
                 <xsl:with-param name="qname" select="'cbc:BaseQuantity'" />
                 <xsl:with-param name="value" select="ubl:normalize-amount('1')" />
@@ -566,10 +603,12 @@
             </xsl:call-template>
 
             <!-- AllowanceCharge only if remise > 0 -->
+            <!-- BG-27: Line level allowances (if applicable) -->
             <xsl:if test="number($discountAmount) &gt; 0">
                 <cac:AllowanceCharge>
                     <cbc:ChargeIndicator>false</cbc:ChargeIndicator>
 
+                    <!-- BT-147: Item price discount (amount) -->
                     <xsl:call-template name="ubl:emit-scheme">
                         <xsl:with-param name="qname" select="'cbc:Amount'" />
                         <xsl:with-param name="value" select="ubl:normalize-amount($discountAmount)" />
@@ -577,6 +616,7 @@
                         <xsl:with-param name="codeValue" select="$currencyCode" />
                     </xsl:call-template>
 
+                    <!-- BT-148: Item gross price -->
                     <xsl:call-template name="ubl:emit-scheme">
                         <xsl:with-param name="qname" select="'cbc:BaseAmount'" />
                         <xsl:with-param name="value" select="ubl:normalize-amount(string(xs:decimal($unitPrice) + xs:decimal($discountAmount)))" />

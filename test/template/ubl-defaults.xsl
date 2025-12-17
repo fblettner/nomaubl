@@ -17,7 +17,9 @@
     
          
     <!-- UBL Standard Header Elements
-         Creates UBLVersionID, CustomizationID, and ProfileID with standard values -->
+         Creates UBLVersionID, CustomizationID, and ProfileID with standard values
+         BT-24: Specification identifier
+         BT-23: Business process type -->
     <xsl:template name="ubl:invoice-header">
         <xsl:param name="ublVersion" as="xs:string" select="'2.1'" />
         <xsl:param name="customizationID" as="xs:string" select="'urn:cen.eu:en16931:2017'" />
@@ -26,9 +28,11 @@
         <cbc:UBLVersionID>
             <xsl:value-of select="$ublVersion" />
         </cbc:UBLVersionID>
+        <!-- BT-24: Specification identifier -->
         <cbc:CustomizationID>
             <xsl:value-of select="$customizationID" />
         </cbc:CustomizationID>
+        <!-- BT-23: Business process type -->
         <cbc:ProfileID>
             <xsl:value-of select="$profileID" />
         </cbc:ProfileID>
@@ -41,7 +45,8 @@
     <!-- Map payment codes to UBL payment means codes
          S -> 30 (Credit transfer)
          R -> 42 (Payment to bank account)
-         Returns original code if no mapping found -->
+         Returns original code if no mapping found
+         BT-81: Payment means type code -->
     <xsl:function name="ubl:payment-code" as="xs:string">
         <xsl:param name="code" as="xs:string?" />
         
@@ -50,7 +55,8 @@
         <xsl:choose>
             <xsl:when test="$normalizedCode = 'S'">49</xsl:when>
             <xsl:when test="$normalizedCode = '4'">30</xsl:when>
-             <xsl:otherwise>
+            <xsl:when test="$normalizedCode = 'C'">20</xsl:when>
+            <xsl:otherwise>
                 <xsl:value-of select="$normalizedCode" />
             </xsl:otherwise>
         </xsl:choose>
@@ -60,18 +66,23 @@
          Constant Notes for French Legal Requirements
          ========================= -->
     
-    <!-- French Payment Delay Penalty Note (BR-FR) -->
+    <!-- French Payment Delay Penalty Note (BR-FR)
+         BT-22: Invoice note
+         BR-FR-03: Payment delay penalty -->
     <xsl:template name="ubl:note-payment-delay">
         <cbc:Note>#PMD#Tout retard de paiement engendre une pénalité exigible à compter de la date d'échéance, calculée sur la base de trois fois le taux d'intérêt légal.</cbc:Note>
     </xsl:template>
 
-    <!-- French Recovery Fee Note (BR-FR) -->
+    <!-- French Recovery Fee Note (BR-FR)
+         BT-22: Invoice note
+         BR-FR-04: Recovery fee -->
     <xsl:template name="ubl:note-recovery-fee">
         <cbc:Note>#PMT#Indemnité forfaitaire pour frais de recouvrement en cas de retard de paiement : 40 €.</cbc:Note>
     </xsl:template>
 
     <!-- French Legal Notes with optional AAB (General Terms) Note
-         Includes payment delay penalty, recovery fee, and optional custom note -->
+         Includes payment delay penalty, recovery fee, and optional custom note
+         BT-22: Invoice note -->
     <xsl:template name="ubl:notes-french-legal">
         <xsl:param name="AAB" as="xs:string?" />
         
@@ -91,7 +102,9 @@
          ========================= -->
 
     <!-- Create PartyIdentification with SIREN (schemeID=0002)
-         Returns default error marker if SIREN is empty -->
+         Returns default error marker if SIREN is empty
+         BT-29: Seller identifier
+         BR-FR-10: Seller SIREN required -->
     <xsl:template name="ubl:party-siren">
         <xsl:param name="siren" as="xs:string?" />
         <xsl:param name="missingMarker" as="xs:string" select="'**MISSING_SIREN**'" />
@@ -111,7 +124,8 @@
     </xsl:template>
 
     <!-- Create CompanyID with SIREN (schemeID=0002)
-         Validates length = 9 characters -->
+         Validates length = 9 characters
+         BT-30: Seller legal registration identifier / BT-47: Buyer legal registration identifier -->
     <xsl:template name="ubl:company-siren">
         <xsl:param name="siren" as="xs:string?" />
         <xsl:param name="missingMarker" as="xs:string" select="'**MISSING_SIREN**'" />
@@ -132,7 +146,8 @@
         </cbc:CompanyID>
     </xsl:template>
 
-    <!-- Create PartyIdentification with SIRET (schemeID=0009) -->
+    <!-- Create PartyIdentification with SIRET (schemeID=0009)
+         BT-29: Seller identifier -->
     <xsl:template name="ubl:party-siret">
         <xsl:param name="siret" as="xs:string?" />
         <xsl:param name="missingMarker" as="xs:string" select="'**MISSING_SIRET**'" />
@@ -151,7 +166,8 @@
         </cac:PartyIdentification>
     </xsl:template>
 
-    <!-- Create PartyIdentification with GLN (schemeID=0088) -->
+    <!-- Create PartyIdentification with GLN (schemeID=0088)
+         BT-29: Seller identifier -->
     <xsl:template name="ubl:party-gln">
         <xsl:param name="gln" as="xs:string?" />
         <xsl:param name="missingMarker" as="xs:string" select="'**MISSING_GLN**'" />
@@ -171,7 +187,8 @@
     </xsl:template>
 
     <!-- Create CompanyID with VAT number
-         Validates FR prefix for French VAT -->
+         Validates FR prefix for French VAT
+         BT-30: Seller legal registration identifier (VAT) -->
     <xsl:template name="ubl:company-vat">
         <xsl:param name="vat" as="xs:string?" />
         <xsl:param name="missingMarker" as="xs:string" select="'**MISSING_VAT**'" />
@@ -192,7 +209,8 @@
         </cbc:CompanyID>
     </xsl:template>
 
-    <!-- Create PartyTaxScheme with VAT -->
+    <!-- Create PartyTaxScheme with VAT
+         BT-31: Seller VAT identifier / BT-48: Buyer VAT identifier -->
     <xsl:template name="ubl:party-tax-vat">
         <xsl:param name="vat" as="xs:string?" />
         <xsl:param name="missingMarker" as="xs:string" select="'**MISSING_VAT**'" />
@@ -218,7 +236,9 @@
         </cac:PartyTaxScheme>
     </xsl:template>
 
-    <!-- Create Endpoint ID with default scheme -->
+    <!-- Create Endpoint ID with default scheme
+         BT-34: Seller electronic address / BT-49: Buyer electronic address
+         BR-FR-23: Seller electronic address required -->
     <xsl:template name="ubl:endpoint-id">
         <xsl:param name="id" as="xs:string?" />
         <xsl:param name="schemeID" as="xs:string" select="'0225'" />
@@ -236,7 +256,8 @@
         </cbc:EndpointID>
     </xsl:template>
 
-    <!-- Create Country with default FR -->
+    <!-- Create Country with default FR
+         BT-40: Seller country code / BT-55: Buyer country code / BT-80: Deliver to country code -->
     <xsl:template name="ubl:country">
         <xsl:param name="code" as="xs:string?" />
         <xsl:param name="default" as="xs:string" select="'FR'" />
@@ -262,7 +283,8 @@
         </cac:Country>
     </xsl:template>
 
-    <!-- Create InvoiceTypeCode with default 380 (Commercial Invoice) -->
+    <!-- Create InvoiceTypeCode with default 380 (Commercial Invoice)
+         BT-3: Invoice type code -->
     <xsl:template name="ubl:invoice-type-code">
         <xsl:param name="code" as="xs:string?" />
         <xsl:param name="default" as="xs:string" select="'380'" />
@@ -279,7 +301,8 @@
         </cbc:InvoiceTypeCode>
     </xsl:template>
 
-    <!-- Create DocumentCurrencyCode with default currency code -->
+    <!-- Create DocumentCurrencyCode with default currency code
+         BT-5: Invoice currency code -->
     <xsl:template name="ubl:currency-code">
         <xsl:param name="code" as="xs:string?" />
         <xsl:param name="default" as="xs:string" select="$defaultCurrency" />

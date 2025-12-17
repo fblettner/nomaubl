@@ -60,43 +60,51 @@
 
         <Invoice>
             <!-- Header -->
+            <!-- BT-23: Business Process Type, BT-24: Specification Identifier -->
             <xsl:call-template name="ubl:invoice-header" />
 
             <!-- Identifiants -->
+            <!-- BT-1: Invoice number -->
             <xsl:call-template name="ubl:emit">
                 <xsl:with-param name="qname" select="'cbc:ID'" />
                 <xsl:with-param name="value" select="$documentNumber" />
             </xsl:call-template>
 
             <!-- Issue Date -->
+            <!-- BT-2: Invoice issue date -->
             <xsl:call-template name="ubl:emit">
                 <xsl:with-param name="qname" select="'cbc:IssueDate'" />
                 <xsl:with-param name="value" select="$issueDate" />
             </xsl:call-template>
 
             <!-- Due Date -->
+            <!-- BT-9: Payment due date -->
             <xsl:call-template name="ubl:emit">
                 <xsl:with-param name="qname" select="'cbc:DueDate'" />
                 <xsl:with-param name="value" select="$dueDate" />
             </xsl:call-template>
 
             <!-- Invoice Type Code -->
+            <!-- BT-3: Invoice type code -->
             <xsl:call-template name="ubl:invoice-type-code">
                 <xsl:with-param name="code" select="$invoiceTypeCode" />
             </xsl:call-template>
 
             <!-- Invoice Notes -->
+            <!-- BT-22: Invoice note -->
             <xsl:call-template name="ubl:notes-french-legal">
                 <xsl:with-param name="AAB"
                     select="$CGV" />
             </xsl:call-template>
 
             <!-- Currency Code -->
+            <!-- BT-5: Invoice currency code -->
             <xsl:call-template name="ubl:currency-code">
                 <xsl:with-param name="code" select="$currencyCode" />
             </xsl:call-template>
 
             <!-- Contract reference -->
+            <!-- BT-12: Contract reference -->
             <xsl:call-template name="ubl:contract-id">
                 <xsl:with-param name="contractId" select="$contractID" />
             </xsl:call-template>
@@ -129,32 +137,33 @@
             <xsl:variable
                 name="supplierVat"
                 select="''" />
+            <!-- BG-4: Seller -->
             <cac:AccountingSupplierParty>
                 <cac:Party>
                     <!-- Endpoint -->
+                    <!-- BT-34: Seller electronic address -->
                     <xsl:call-template name="ubl:endpoint-id">
                         <xsl:with-param name="id" select="$endPointID" />
                         <xsl:with-param name="missingMarker" select="'**MISSING_BR-FR-23**'" />
                     </xsl:call-template>
 
-                    <!-- GLN -->
-                    <xsl:call-template name="ubl:party-gln">
-                        <xsl:with-param name="gln" select="$supplierGln" />
-                        <xsl:with-param name="missingMarker" select="'**MISSING_BR-FR-10**'" />
-                    </xsl:call-template>
+
 
                     <!-- SIREN -->
+                    <!-- BT-29: Seller identifier -->
                     <xsl:call-template name="ubl:party-siren">
                         <xsl:with-param name="siren" select="$supplierSiren" />
                         <xsl:with-param name="missingMarker" select="'**MISSING_BR-FR-10**'" />
                     </xsl:call-template>
 
                     <!-- PartyName (no empty Name) -->
+                    <!-- BT-28: Seller trading name -->
                     <xsl:call-template name="ubl:party-name">
                         <xsl:with-param name="partyName" select="$supplierName" />
                     </xsl:call-template>
 
                     <!-- PostalAddress (only if at least one field exists) -->
+                    <!-- BG-5: Seller postal address -->
                     <xsl:call-template name="ubl:address">
                         <xsl:with-param name="qname" select="'cac:PostalAddress'" />
                         <xsl:with-param name="street" select="$supplierStreet" />
@@ -165,6 +174,7 @@
                     </xsl:call-template>
 
                     <!-- VAT -->
+                    <!-- BT-31: Seller VAT identifier -->
                     <xsl:call-template name="ubl:party-tax-vat">
                         <xsl:with-param name="vat" select="$supplierVat" />
                         <xsl:with-param name="missingMarker" select="'FR01572126043'" />
@@ -173,17 +183,20 @@
                     <!-- PartyLegalEntity -->
                     <cac:PartyLegalEntity>
                         <!-- supplier Name -->
+                        <!-- BT-27: Seller name -->
                         <cbc:RegistrationName>
                             <xsl:value-of select="$supplierName" />
                         </cbc:RegistrationName>
 
                         <!-- supplier SIREN -->
+                        <!-- BT-30: Seller legal registration identifier -->
                         <xsl:call-template name="ubl:company-siren">
                             <xsl:with-param name="siren" select="$supplierSiren" />
                             <xsl:with-param name="missingMarker" select="'572126043'" />
                         </xsl:call-template>
 
                         <!-- supplier Legal Form -->
+                        <!-- BT-33: Seller additional legal information -->
                         <cbc:CompanyLegalForm>
                             <xsl:value-of
                                 select="$invoiceGroup/*[local-name()='MessageInfoJuridiqueEtAdresseSociete']" />
@@ -198,6 +211,7 @@
                     <xsl:variable name="contactMail"
                         select="$invoiceGroup/*[local-name()='MessageInfoServiceClientMail']" />
 
+                    <!-- BG-6: Seller contact -->
                     <xsl:call-template name="ubl:contact">
                         <xsl:with-param name="name" select="$contactName" />
                         <xsl:with-param name="telephone" select="$contactTel" />
@@ -230,13 +244,16 @@
             <xsl:variable name="cCountryRaw"
                 select="$invoiceGroup/*[local-name()='Sold_To_Code_Pays_ID31']" />
 
+            <!-- BG-7: Buyer -->
             <cac:AccountingCustomerParty>
                 <cac:Party>
+                    <!-- BT-49: Buyer electronic address -->
                     <xsl:call-template name="ubl:endpoint-id">
                         <xsl:with-param name="id" select="''" />
                     </xsl:call-template>
 
                     <!-- PostalAddress  -->
+                    <!-- BG-8: Buyer postal address -->
                     <xsl:call-template name="ubl:address">
                         <xsl:with-param name="qname" select="'cac:PostalAddress'" />
                         <xsl:with-param name="street" select="$cStreet" />
@@ -250,6 +267,7 @@
                     </xsl:call-template>
 
                     <!-- PartyLegalEntity -->
+                    <!-- BT-44: Buyer name -->
                     <xsl:call-template name="ubl:party-legal-entity">
                         <xsl:with-param name="customerName" select="$customerName" />
                         <xsl:with-param name="customerSiren" select="$customerSiren" />
@@ -279,8 +297,10 @@
 
             <xsl:if
                 test="count($shipToGroup) = 1 and (ubl:is-not-empty($deliveryId) or ubl:is-not-empty($dStreet) or ubl:is-not-empty($dStreet2) or ubl:is-not-empty($dStreet3) or ubl:is-not-empty($dStreet4) or ubl:is-not-empty($dCity) or ubl:is-not-empty($dPostalCode) or ubl:is-not-empty($dCountry))">
+                <!-- BG-13: Delivery information -->
                 <cac:Delivery>
                     <cac:DeliveryLocation>
+                        <!-- BT-71: Deliver to location identifier -->
                         <xsl:call-template name="ubl:emit-scheme">
                             <xsl:with-param name="qname" select="'cbc:ID'" />
                             <xsl:with-param name="value" select="$deliveryId" />
@@ -289,6 +309,7 @@
                         </xsl:call-template>
 
                         <!-- Delivery Address  -->
+                        <!-- BG-15: Deliver to address -->
                         <xsl:call-template name="ubl:address">
                             <xsl:with-param name="qname" select="'cac:Address'" />
                             <xsl:with-param name="street" select="$dStreet" />
@@ -319,6 +340,7 @@
                 name="paymentTerms"
                 select="$invoiceGroup/*[local-name()='DescriptionModePaiement']" />
 
+            <!-- BG-16: Payment instructions -->
             <xsl:call-template name="ubl:payment-means">
                 <xsl:with-param name="paymentCode" select="$paymentCode" />
                 <xsl:with-param name="iban" select="$iban" />
@@ -327,6 +349,7 @@
             </xsl:call-template>
 
             <xsl:if test="ubl:is-not-empty($paymentTerms)">
+                <!-- BT-20: Payment terms -->
                 <cac:PaymentTerms>
                     <xsl:call-template name="ubl:emit">
                         <xsl:with-param name="qname" select="'cbc:Note'" />
@@ -336,6 +359,7 @@
             </xsl:if>
 
             <!-- TaxTotal (using ubl:tax-subtotal template) -->
+            <!-- BG-23: VAT breakdown -->
             <cac:TaxTotal>
                 <xsl:variable
                     name="taxAmount"
@@ -347,6 +371,7 @@
                     name="taxCurrency"
                     select="$defaultCurrency" />
 
+                <!-- BT-110: Invoice total VAT amount -->
                 <xsl:call-template name="ubl:emit-scheme">
                     <xsl:with-param name="qname" select="'cbc:TaxAmount'" />
                     <xsl:with-param name="value" select="$taxAmount" />
@@ -373,6 +398,7 @@
                         name="taxLineCurrency"
                         select="$defaultCurrency" />
 
+                    <!-- BG-23: VAT breakdown -->
                     <xsl:call-template
                         name="ubl:tax-subtotal">
                         <xsl:with-param name="taxableAmount" select="$taxableLineAmount" />
@@ -397,6 +423,7 @@
                 name="totalCurrencyCode"
                 select="$defaultCurrency" />
 
+            <!-- BG-22: Document totals -->
             <xsl:call-template
                 name="ubl:legal-monetary-total">
                 <xsl:with-param name="totalWithoutVAT" select="$totalWithoutVAT" />
@@ -455,13 +482,16 @@
                     name="itemTaxType"
                     select="'S'" />
 
+                <!-- BG-25: Invoice line -->
                 <cac:InvoiceLine>
+                    <!-- BT-126: Invoice line identifier -->
                     <cbc:ID>
                         <xsl:number level="any" count="*[local-name()='Detail_ligne_article_S2']"
                             format="1" />
                     </cbc:ID>
 
                     <!-- InvoicedQuantity: only if quantity exists; omit unitCode if empty -->
+                    <!-- BT-129: Invoiced quantity -->
                     <xsl:call-template name="ubl:emit-scheme">
                             <xsl:with-param name="qname" select="'cbc:InvoicedQuantity'" />
                             <xsl:with-param name="value" select="$lineQuantity" />
@@ -469,6 +499,7 @@
                             <xsl:with-param name="codeValue" select="$unitCode" />
                     </xsl:call-template>
 
+                    <!-- BT-131: Invoice line net amount -->
                     <xsl:call-template name="ubl:emit-scheme">
                             <xsl:with-param name="qname" select="'cbc:LineExtensionAmount'" />
                             <xsl:with-param name="value" select="ubl:normalize-amount($lineAmount)" />
@@ -477,11 +508,13 @@
                     </xsl:call-template>
 
                     <cac:Item>
+                        <!-- BT-153: Item name -->
                         <xsl:call-template name="ubl:emit">
                             <xsl:with-param name="qname" select="'cbc:Name'" />
                             <xsl:with-param name="value" select="$itemLabel" />
                         </xsl:call-template>
 
+                        <!-- BT-151: Invoiced item VAT category code -->
                         <xsl:call-template name="ubl:classified-tax-category">
                             <xsl:with-param name="id" select="$itemTaxType" />
                             <xsl:with-param name="percent" select="$itemTaxAmount" />
@@ -489,6 +522,7 @@
 
                         <xsl:if test="$itemCode = '3'">
 
+                            <!-- BG-32: Item attributes -->
                             <xsl:call-template name="ubl:additional-item-property">
                                 <xsl:with-param name="name" select="'Livraison du'" />
                                 <xsl:with-param name="value" select="$deliveryDate" />
@@ -509,6 +543,7 @@
                     </cac:Item>
 
                      <!-- PriceAmount: only if non-empty -->
+                    <!-- BG-29: Price details -->
                     <xsl:call-template name="ubl:line-price">
                         <xsl:with-param name="unitPrice" select="$unitPrice" />
                         <xsl:with-param name="unitCode" select="$unitCode" />
