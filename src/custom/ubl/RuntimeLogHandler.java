@@ -24,7 +24,6 @@ public class RuntimeLogHandler {
     private final String paramTemplate;
     private final String paramFile;
     private final String paramType;
-    private final String paramJobNumber;
     private final SimpleDateFormat jdeDateFormat = new SimpleDateFormat("yyyyDDD");
     private final SimpleDateFormat jdeTimeFormat = new SimpleDateFormat("HHmmss");
     
@@ -42,15 +41,13 @@ public class RuntimeLogHandler {
      * @param paramTemplate Template name
      * @param paramFile File name being processed
      * @param paramType Processing type (SINGLE, BURST, UBL, BOTH, UBL_VALIDATE)
-     * @param paramJobNumber Job number for tracking
      */
     public RuntimeLogHandler(String configFile, String paramTemplate, String paramFile, 
-                           String paramType, String paramJobNumber) {
+                           String paramType) {
         this.configFile = configFile;
         this.paramTemplate = paramTemplate;
         this.paramFile = paramFile;
         this.paramType = paramType;
-        this.paramJobNumber = paramJobNumber;
         
         // Load database configuration
         loadDatabaseConfig();

@@ -37,8 +37,6 @@ import static custom.resources.Tools.decodePasswd;
 import static custom.resources.Tools.encodePasswd;
 import org.apache.commons.io.FileUtils;
 import java.sql.*;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import javax.xml.parsers.ParserConfigurationException;
 import oracle.xdo.XDOException;
 import org.xml.sax.SAXException;
@@ -279,7 +277,7 @@ public class ScheduleUBL {
     public static void insertLogSQL(String configFile,String paramTemplate, String paramFile, String paramType, String paramJobNumber,
             String Method, String Message) throws Exception  {
         // Deprecated - Use RuntimeLogHandler instead
-        RuntimeLogHandler logHandler = new RuntimeLogHandler(configFile, paramTemplate, paramFile, paramType, paramJobNumber);
+        RuntimeLogHandler logHandler = new RuntimeLogHandler(configFile, paramTemplate, paramFile, paramType);
         RuntimeLogHandler.LogResult result = logHandler.insertLog(Method, Message);
         if (result.hasError()) {
             System.err.println("Runtime log error: " + result.getErrorMessage());
@@ -291,8 +289,8 @@ public class ScheduleUBL {
             String paramConfig, boolean displayError) throws IOException, Exception{
         
             // Create runtime log handler for this execution
-            RuntimeLogHandler logHandler = new RuntimeLogHandler(paramConfig, paramTemplate, paramFile, paramType, paramJobNumber);
-    
+            RuntimeLogHandler logHandler = new RuntimeLogHandler(paramConfig, paramTemplate, paramFile, paramType);
+
             try {               
             
             /* Initialisation des valeurs de paramètres */
