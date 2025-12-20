@@ -12,11 +12,6 @@ import javax.xml.xpath.*;
 import java.sql.*;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.Properties;
-import java.io.InputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 
@@ -31,11 +26,10 @@ public class UBLDatabaseHandler {
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HHmmss");
     private final SimpleDateFormat dateParser = new SimpleDateFormat("yyyy-MM-dd");
     private final XPath xpath;
-    private final Properties statusCodeMapping;
     private final boolean displayError;
 
     // Constructor
-    public UBLDatabaseHandler(Connection connection, String schema, String doc, String dct, String kco, String ublConfigPath, boolean displayError) throws XPathExpressionException {
+    public UBLDatabaseHandler(Connection connection, String schema, String doc, String dct, String kco, boolean displayError) throws XPathExpressionException {
         this.conn = connection;
         this.schema = schema;
         this.doc = doc;
@@ -45,9 +39,6 @@ public class UBLDatabaseHandler {
         XPathFactory xpathFactory = XPathFactory.newInstance();
         this.xpath = xpathFactory.newXPath();
         
-        // Load mapping files
-        this.statusCodeMapping = loadPropertiesFile(ublConfigPath + "ubl_status.properties", "STATUS");
-
         // Register UBL namespaces
         xpath.setNamespaceContext(new javax.xml.namespace.NamespaceContext() {
             @Override
@@ -62,89 +53,6 @@ public class UBLDatabaseHandler {
             @Override
             public java.util.Iterator<String> getPrefixes(String namespaceURI) { return null; }
         });
-    }
-    
-    /**
-     * Generic method to load properties file from filesystem or classpath
-     * 
-     * @param path Path to properties file (absolute or classpath)
-     * @param mappingName Name of the mapping for logging purposes
-     * @return Loaded Properties object (empty if file not found)
-     */
-    private Properties loadPropertiesFile(String path, String mappingName) {
-        Properties props = new Properties();
-        
-        if (path == null || path.trim().isEmpty()) {
-            System.out.println(" ** WARNING ** DB ** " + mappingName + " : No path provided, using default codes");
-            return props;
-        }
-        
-        try {
-            InputStream is = null;
-            File file = new File(path);
-            if (file.exists()) {
-                is = new FileInputStream(file);
-            }
-            
-            if (is != null) {
-                try {
-                    props.load(is);
-                } finally {
-                    is.close();
-                }
-            } else {
-                System.out.println(" ** WARNING ** DB ** " + mappingName + " : File not found at: " + path);
-            }
-        } catch (IOException e) {
-            System.out.println(" ** WARNING ** DB ** " + mappingName + " : Failed to load mapping: " + e.getMessage());
-        }
-        
-        return props;
-    }
-    
-    /**
-     * Generic method to map a code using a properties mapping
-     * 
-     * @param mapping Properties object containing the mapping
-     * @param code Input code to map
-     * @param maxLength Maximum length for JDE field (will truncate if needed)
-     * @param mappingName Name of the mapping for logging purposes
-     * @param defaultValue Default value if no mapping found
-     * @return Mapped code (or default if not found)
-     */
-    private String mapCode(Properties mapping, String code, int maxLength, String mappingName, String defaultValue) {
-        if (code == null) return null;
-        
-        String mappedCode = mapping.getProperty(code);
-        if (mappedCode != null) {
-            // Ensure it fits in the maximum length
-            if (mappedCode.length() > maxLength) {
-                mappedCode = mappedCode.substring(0, maxLength);
-            }
-            return mappedCode;
-        } else {
-            // No mapping found, return default or original code
-            if (defaultValue != null) {
-                return defaultValue;
-            } else {
-                // Return original code, truncated if necessary
-                if (code.length() > maxLength) {
-                    return code.substring(0, maxLength);
-                }
-                return code;
-            }
-        }
-    }
-    
-    /**
-     * Maps a descriptive status code to JDE UDC code (max 10 characters)
-     * Uses ubl_status_codes.properties mapping file
-     * 
-     * @param statusCode Descriptive status code (e.g., "VALIDATED_WARN")
-     * @return JDE-compliant code (e.g., "VALID_WARN") or "99" if not found
-     */
-    private String mapStatusCode(String statusCode) {
-        return mapCode(statusCodeMapping, statusCode, 10, "STATUS", "99");
     }
     
     /**
@@ -283,7 +191,7 @@ public class UBLDatabaseHandler {
      * Corresponds to Invoice header according to EN 16931
      */
     public boolean insertUBLHeader(Document ublDoc, String originalDoc, 
-                                   String originalDct, String originalKco, String customerAN8, String customerALKY) 
+                                   String originalDct, String originalKco, String customerAN8, String customerALKY, String status) 
                                    throws Exception {
         
         String sql = "INSERT INTO " + schema + ".F564231 (" +
@@ -364,8 +272,7 @@ public class UBLDatabaseHandler {
             stmt.setBlob(22, convertNodeToBlob(ublDoc));                               // TXFT
             
             // Status
-            String mappedStatus = mapStatusCode("CREATED");
-            setStringOrBlank(stmt, 23, mappedStatus);                                      // K74INVST
+            setStringOrBlank(stmt, 23, status);                                      // K74INVST
             
             // Customer Endpoint (BT-49, BT-49-1)
             String endpointID = getXPathValue(ublDoc, "//cac:AccountingCustomerParty/cac:Party/cbc:EndpointID");
@@ -599,13 +506,12 @@ public class UBLDatabaseHandler {
     /**
      * Insert Lifecycle event into F564235
      */
-    public boolean insertLifecycleEvent(String statusCode, String message) {
+    public boolean insertLifecycleEvent(String status, String message) {
         
         String sql = "INSERT INTO " + schema + ".F564235 (" +
                 "USDOC, USDCT, USKCO, USSEQN, USK74RSCD, USK74MSG1, USTRDJ, USUSER, USPID, USJOBN, USUPMJ, USTDAY" +
                 ") VALUES (?,?,?,(SELECT NVL(MAX(USSEQN),0)+1 FROM " + schema + ".F564235 WHERE USDOC=? AND USDCT=? AND USKCO=?),?,?,?,?,?,?,?,?)";
         
-        String mappedStatus = mapStatusCode(statusCode);
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, Integer.parseInt(doc));                                       // DOC
             stmt.setString(2, dct);                                                        // DCT
@@ -613,7 +519,7 @@ public class UBLDatabaseHandler {
             stmt.setInt(4, Integer.parseInt(doc));                                       // For subquery
             stmt.setString(5, dct);                                                        // For subquery
             stmt.setString(6, kco);                                                        // For subquery
-            setStringOrBlank(stmt, 7, mappedStatus);                                       // K74RSCD
+            setStringOrBlank(stmt, 7, status);                                       // K74RSCD
             
             if (message != null && message.length() > 500) {
                 message = message.substring(0, 500);
@@ -707,10 +613,8 @@ public class UBLDatabaseHandler {
         
         String sql = "UPDATE " + schema + ".F564231 SET UHK74INVST=?, UHUPMJ=?, UHTDAY=? WHERE UHDOC=? AND UHDCT=? AND UHKCO=?";
 
-        String mappedStatus = mapStatusCode(status);
-
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            setStringOrBlank(stmt, 1, mappedStatus);                                       // UHK74INVST
+            setStringOrBlank(stmt, 1, status);                                       // UHK74INVST
             stmt.setInt(2, getCurrentJDEDate());                                           // UHUPMJ
             stmt.setInt(3, getCurrentJDETime());                                           // UHTDAY
             stmt.setInt(4, Integer.parseInt(doc));                                       // USDOC

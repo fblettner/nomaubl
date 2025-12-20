@@ -88,7 +88,7 @@ Tracks invoice status changes and PA communication:
 | TRDJ | Status timestamp |
 
 **Status Codes:**
-- `CREATED` - Invoice created in JDE
+- `CREATED` - Invoice created
 - `VALIDATED` - Validation successful (no errors)
 - `VALIDATED_WARN` - Validation with warnings
 - `SENT` - Sent to PA
@@ -112,7 +112,7 @@ Stores Schematron validation results:
 The database population occurs in the following order:
 
 ```
-1. UBL Generation (from JDE data)
+1. UBL Generation (from XML data)
    ↓
 2. UBL Validation (Schematron)
    ↓

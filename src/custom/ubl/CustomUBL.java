@@ -75,7 +75,6 @@ public class CustomUBL implements Callable<Integer> {
     private String pPaApiBaseUrl;
     private String pPaApiImportEndpoint;
     private int pPaApiTimeout;
-    private String pUblConfigPath;
 
     /**
      * Generic logging function following standard format: ** LEVEL ** MODULE **
@@ -100,6 +99,15 @@ public class CustomUBL implements Callable<Integer> {
                 System.out.println(logMsg);
             }
         }
+    }
+
+    /**
+     * Log using a LogEntry from LogCatalog
+     * 
+     * @param entry LogEntry to log
+     */
+    private void log(LogCatalog.LogEntry entry) {
+        entry.print(displayError);
     }
 
     private String replaceConstValue(String inputStr) {
@@ -150,7 +158,6 @@ public class CustomUBL implements Callable<Integer> {
             pDBUser = resource.getProperty("DBUser");
             pDBPasswd = decodePasswd(resource.getProperty("DBPassword"));
             pXdoConfig = resource.getProperty("xdo");
-            pUblConfigPath = replaceConstValue(resource.getProperty("ublConfigPath"));
 
             resource = resources.getResourceByName(pTemplate);
             pdoc = resource.getProperty("docID");
@@ -191,12 +198,12 @@ public class CustomUBL implements Callable<Integer> {
      */
     private boolean sendToPlatform(String ublFilePath, String docName) {
         if (!"API".equalsIgnoreCase(pPaMode)) {
-            log("INFO", "PA", "Mode", "not API, skipping send for " + docName);
+            log(LogCatalog.paNotApi(docName));
             return true;
         }
 
         if (pTokenManager == null) {
-            log("ERROR", "PA", "TokenManager", "not initialized for " + docName);
+            log(LogCatalog.paTokenManagerNotInitialized(docName));
             return false;
         }
 
@@ -213,7 +220,7 @@ public class CustomUBL implements Callable<Integer> {
             for (int attempt = 0; attempt < 2; attempt++) {
                 String token = pTokenManager.getToken();
                 if (token == null) {
-                    log("ERROR", "PA", "Auth", "Failed to get auth token for " + docName);
+                    log(LogCatalog.paAuthFailed(docName));
                     return false;
                 }
 
@@ -236,18 +243,17 @@ public class CustomUBL implements Callable<Integer> {
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
                 if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    log("SUCCESS", "UBL", "PA", "Document sent successfully: " + docName);
-                    log("INFO", "UBL", "PA", "Response: " + response.body());
+                    log(LogCatalog.paDocumentSent(docName));
+                    log(LogCatalog.info(LogCatalog.MODULE_UBL, LogCatalog.SUB_UBL_PA, "Response: " + response.body()));
                     return true;
                 } else if (response.statusCode() == 401 && attempt == 0) {
                     // Token expired, refresh and retry
-                    log("WARNING", "UBL", "PA", "Token expired, refreshing and retrying for " + docName);
+                    log(LogCatalog.paTokenExpired(docName));
                     pTokenManager.refreshToken();
                     continue;
                 } else {
-                    log("ERROR", "UBL", "PA",
-                            "Failed to send document " + docName + " - Status: " + response.statusCode());
-                    log("ERROR", "UBL", "PA", "Response: " + response.body());
+                    log(LogCatalog.paSendError(docName, response.statusCode()));
+                    log(LogCatalog.error(LogCatalog.MODULE_UBL, LogCatalog.SUB_UBL_PA, "Response: " + response.body()));
                     return false;
                 }
             }
@@ -255,12 +261,11 @@ public class CustomUBL implements Callable<Integer> {
             return false;
 
         } catch (Exception e) {
-            log("ERROR", "UBL", "PA", "Exception sending document " + docName + ": " + e.getMessage());
+            log(LogCatalog.paSendException(docName, e.getMessage()));
             e.printStackTrace();
             return false;
         }
     }
-
 
     @Override
     public Integer call() throws Exception {
@@ -290,18 +295,18 @@ public class CustomUBL implements Callable<Integer> {
                     String activite = Tools.getNodeString(pActivite, (Element) element);
                     String typePiece = Tools.getNodeString(pTypePiece, (Element) element);
                     // Create database handler for legacy tables
-                    UBLDatabaseHandler dbHandler = new UBLDatabaseHandler(conn, pSchema, doc, dct, kco, pUblConfigPath, displayError);
+                    UBLDatabaseHandler dbHandler = new UBLDatabaseHandler(conn, pSchema, doc, dct, kco, displayError);
 
                     boolean isDocOK = true;
 
                     // INSERT table F564230
                     if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                         try {
-                            isDocOK = dbHandler.insertDocumentLog(activite, typePiece, 
+                            isDocOK = dbHandler.insertDocumentLog(activite, typePiece,
                                     (Element) element, pNumClient, pMontant, pDatePiece, pDateEcheance, pCodeRoutage,
                                     pFileName, pTableLog);
                         } catch (Exception e) {
-                            log("ERROR", "DB", "INSERT", "Insert failed: " + e.getMessage());
+                            log(LogCatalog.dbInsertFailed(e.getMessage()));
                         }
                     }
 
@@ -319,11 +324,11 @@ public class CustomUBL implements Callable<Integer> {
                                 // Recreate InputStream for PDF generation (consumed by UBL in BOTH mode)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
 
-                                if (!BIPublisher.convertToPDF(is, pTempOutput + docName + ".pdf", xslOutStream, pXdoConfig, pSetLocale)) {
+                                if (!BIPublisher.convertToPDF(is, pTempOutput + docName + ".pdf", xslOutStream,
+                                        pXdoConfig, pSetLocale)) {
                                     if (pUpdateDB.equals("Y")) {
                                         ValidationResult errResult = new ValidationResult();
-                                        errResult.addError(new ValidationError("PDF", "ERROR", "ERREUR CREATION PDF",
-                                                "PDF_CREATION"));
+                                        errResult.addError(ErrorCatalog.pdfCreationError());
                                         dbHandler.insertValidationResults(errResult);
                                     }
                                 } else {
@@ -340,8 +345,7 @@ public class CustomUBL implements Callable<Integer> {
                                     if (!Tranform.convertToXML(is, pDirOutput + docName + ".xml", pXslTemplate)) {
                                         if (pUpdateDB.equals("Y")) {
                                             ValidationResult errResult = new ValidationResult();
-                                            errResult.addError(new ValidationError("XML", "ERROR",
-                                                    "ERREUR CREATION INDEX", "XML_CREATION"));
+                                            errResult.addError(ErrorCatalog.xmlCreationError());
                                             dbHandler.insertValidationResults(errResult);
                                         }
                                     }
@@ -360,8 +364,7 @@ public class CustomUBL implements Callable<Integer> {
                                 if (!Tranform.convertToUBL(is, ublFile, pUblXsltPath)) {
                                     if (pUpdateDB.equals("Y")) {
                                         ValidationResult errResult = new ValidationResult();
-                                        errResult.addError(new ValidationError("UBL", "ERROR", "ERREUR CREATION UBL",
-                                                "UBL_CREATION"));
+                                        errResult.addError(ErrorCatalog.ublCreationError());
                                         dbHandler.insertValidationResults(errResult);
                                     }
                                 } else {
@@ -374,11 +377,9 @@ public class CustomUBL implements Callable<Integer> {
 
                                         String pdfFileName = docName + ".pdf";
                                         if (!Tranform.embedPdfInUBL(ublFile, pdfFile, pdfFileName)) {
-                                            log("WARNING", "UBL", "Attachment",
-                                                    "Could not embed PDF attachment in UBL for " + docName);
+                                            log(LogCatalog.ublAttachmentError(docName));
                                         } else {
-                                            log("SUCCESS", "UBL", "Attachment",
-                                                    "PDF attachment embedded in UBL for " + docName);
+                                            log(LogCatalog.ublAttachmentSuccess(docName));
                                         }
                                     }
 
@@ -390,13 +391,12 @@ public class CustomUBL implements Callable<Integer> {
                                         try {
 
                                             // Insert lifecycle event: CREATED
-                                            dbHandler.insertLifecycleEvent("CREATED",
-                                                    "Invoice created in JDE");
+                                            InvoiceStatusCatalog.created().apply(dbHandler);
 
                                             // Insert header
                                             String numClient = Tools.getNodeString(pNumClient, (Element) element);
-                                            if (dbHandler.insertUBLHeader(ublDoc, 
-                                                    null, null, null, null, numClient)) {
+                                            if (dbHandler.insertUBLHeader(ublDoc,
+                                                    null, null, null, null, numClient, InvoiceStatusCatalog.STATUS_ISSUED)) {
                                                 // Insert lines
                                                 dbHandler.insertUBLLines(ublDoc);
 
@@ -408,9 +408,8 @@ public class CustomUBL implements Callable<Integer> {
                                                         validResult);
                                             }
                                         } catch (Exception e) {
-                                            log("ERROR", "DB", "UBL Tables",
-                                                    "Failed to populate UBL tables for " + docName);
-                                            log("ERROR", "DB", "UBL Tables", e.getMessage());
+                                            log(LogCatalog.dbUblTablesFailed(docName));
+                                            log(LogCatalog.dbUblTablesError(e.getMessage()));
                                             e.printStackTrace();
                                         }
                                     }
@@ -425,20 +424,16 @@ public class CustomUBL implements Callable<Integer> {
                                         // Update status to VALIDATED (with warnings) if UBL tables populated
                                         if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                             try {
-                                                dbHandler.updateInvoiceStatus(
-                                                        "VALIDATED_WARN");
-                                                dbHandler.insertLifecycleEvent(
-                                                        "VALIDATED_WARN",
-                                                        "Validation completed with warnings");
+                                                InvoiceStatusCatalog.validatedWithWarnings().apply(dbHandler);
                                             } catch (Exception e) {
-                                                log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                                log(LogCatalog.dbUpdateFailed(e.getMessage()));
                                             }
                                         }
 
                                         // Check if only warnings (no errors)
                                         boolean hasOnlyWarnings = true;
-                                        for (ValidationError e : validResult.getErrors()) {
-                                            if (!"WARNING".equalsIgnoreCase(e.getSeverity().toUpperCase())) {
+                                        for (ValidationError err : validResult.getErrors()) {
+                                            if (!"WARNING".equalsIgnoreCase(err.getSeverity().toUpperCase())) {
                                                 hasOnlyWarnings = false;
                                                 break;
                                             }
@@ -447,25 +442,21 @@ public class CustomUBL implements Callable<Integer> {
                                         // Send to PA if F (force) mode and only warnings (not in validation-only mode)
                                         if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA)
                                                 && hasOnlyWarnings) {
-                                            log("INFO", "UBL", "PA",
-                                                    "forcing send to PA despite warnings for " + docName);
+                                            log(LogCatalog.ublForceSendToPA(docName));
 
                                             // Update status before sending
                                             if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                                 try {
-                                                    dbHandler.updateInvoiceStatus("SENT");
-                                                    dbHandler.insertLifecycleEvent("SENT",
-                                                            "Sent to PA");
+                                                    InvoiceStatusCatalog.sent().apply(dbHandler);
                                                 } catch (Exception e) {
-                                                    log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                                    log(LogCatalog.dbUpdateFailed(e.getMessage()));
                                                 }
                                             }
 
                                             if (!sendToPlatform(ublFile, docName)) {
                                                 if (pUpdateDB.equals("Y")) {
                                                     ValidationResult errResult = new ValidationResult();
-                                                    errResult.addError(new ValidationError("PA", "ERROR",
-                                                            "ERREUR ENVOI PA", "PA_SEND"));
+                                                    errResult.addError(ErrorCatalog.paSendError());
                                                     dbHandler.insertValidationResults(
                                                             errResult);
                                                 }
@@ -473,42 +464,31 @@ public class CustomUBL implements Callable<Integer> {
                                                 // Update status to ERROR
                                                 if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                                     try {
-                                                        dbHandler.updateInvoiceStatus(
-                                                                "ERROR");
-                                                        dbHandler.insertLifecycleEvent(
-                                                                "ERROR",
-                                                                "Failed to send to PA");
+                                                        InvoiceStatusCatalog.errorSend().apply(dbHandler);
                                                     } catch (Exception e) {
-                                                        log("ERROR", "DB", "Status",
-                                                                "Update failed: " + e.getMessage());
+                                                        log(LogCatalog.dbUpdateFailed(e.getMessage()));
                                                     }
                                                 }
                                             } else {
                                                 // Update status to DEPOSEE (deposited)
                                                 if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                                     try {
-                                                        dbHandler.updateInvoiceStatus(
-                                                                "DEPOSEE");
-                                                        dbHandler.insertLifecycleEvent(
-                                                                "DEPOSEE", "Deposited on PA");
-                                                    } catch (Exception e) {
-                                                        log("ERROR", "DB", "Status",
-                                                                "Update failed: " + e.getMessage());
+                                                        InvoiceStatusCatalog.deposited().apply(dbHandler);
+                                                    } catch (Exception ex) {
+                                                        log(LogCatalog.dbUpdateFailed(ex.getMessage()));
                                                     }
                                                 }
                                             }
                                         }
                                     } else {
-                                        log("SUCCESS", "UBL", typePiece, "validation successful for " + docName);
+                                        log(LogCatalog.ublValidationSuccess(typePiece, docName));
 
                                         // Update status to VALIDATED if UBL tables populated
                                         if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                             try {
-                                                dbHandler.updateInvoiceStatus("VALIDATED");
-                                                dbHandler.insertLifecycleEvent("VALIDATED",
-                                                        "Validation successful");
+                                                InvoiceStatusCatalog.validated().apply(dbHandler);
                                             } catch (Exception e) {
-                                                log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                                log(LogCatalog.dbUpdateFailed(e.getMessage()));
                                             }
                                         }
 
@@ -520,19 +500,16 @@ public class CustomUBL implements Callable<Integer> {
                                             // Update status before sending
                                             if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                                 try {
-                                                    dbHandler.updateInvoiceStatus("SENT");
-                                                    dbHandler.insertLifecycleEvent("SENT",
-                                                            "Sent to PA");
-                                                } catch (Exception e) {
-                                                    log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                                    InvoiceStatusCatalog.sent().apply(dbHandler);
+                                                } catch (Exception ex2) {
+                                                    log(LogCatalog.dbUpdateFailed(ex2.getMessage()));
                                                 }
                                             }
 
                                             if (!sendToPlatform(ublFile, docName)) {
                                                 if (pUpdateDB.equals("Y")) {
                                                     ValidationResult errResult = new ValidationResult();
-                                                    errResult.addError(new ValidationError("PA", "ERROR",
-                                                            "ERREUR ENVOI PA", "PA_SEND"));
+                                                    errResult.addError(ErrorCatalog.paSendError());
                                                     dbHandler.insertValidationResults(
                                                             errResult);
                                                 }
@@ -540,26 +517,18 @@ public class CustomUBL implements Callable<Integer> {
                                                 // Update status to ERROR
                                                 if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                                     try {
-                                                        dbHandler.updateInvoiceStatus(
-                                                                "ERROR");
-                                                        dbHandler.insertLifecycleEvent(
-                                                                "ERROR",
-                                                                "Failed to send to PA");
-                                                    } catch (Exception e) {
-                                                        log("ERROR", "DB", "Status",
-                                                                "Update failed: " + e.getMessage());
+                                                        InvoiceStatusCatalog.errorSend().apply(dbHandler);
+                                                    } catch (Exception ex3) {
+                                                        log(LogCatalog.dbUpdateFailed(ex3.getMessage()));
                                                     }
                                                 }
                                             } else {
                                                 // Update status to DEPOSEE (deposited)
                                                 if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
                                                     try {
-                                                        dbHandler.updateInvoiceStatus("DEPOSEE");
-                                                        dbHandler.insertLifecycleEvent("DEPOSEE",
-                                                                "Deposited on PA");
-                                                    } catch (Exception e) {
-                                                        log("ERROR", "DB", "Status",
-                                                                "Update failed: " + e.getMessage());
+                                                        InvoiceStatusCatalog.deposited().apply(dbHandler);
+                                                    } catch (Exception ex4) {
+                                                        log(LogCatalog.dbUpdateFailed(ex4.getMessage()));
                                                     }
                                                 }
                                             }

@@ -73,7 +73,7 @@ Complete Oracle database integration for UBL invoice data according to specifica
 The database population happens **just before sending to PA**, in this order:
 
 ```
-1. Generate UBL XML from JDE data
+1. Generate UBL XML from XML data
 2. Validate UBL (Schematron EN 16931 + CIUS-FR)
 3. POPULATE DATABASE TABLES 
    a. Insert lifecycle event: CREATED
