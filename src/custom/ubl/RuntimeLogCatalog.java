@@ -25,6 +25,7 @@ public class RuntimeLogCatalog {
     public static final String METHOD_PARSE_XML = "parseXML";
     public static final String METHOD_COPY_FILES = "copyFiles";
     public static final String METHOD_DELETE_FILES = "deleteFiles";
+    public static final String METHOD_PA_AUTH = "paAuthentication";
     
     /**
      * Private constructor to prevent instantiation

@@ -22,16 +22,22 @@ public class TokenManager {
     private final String username;
     private final String password;
     private final int timeout;
+    private final boolean displayError;
     
     private String currentToken;
     private long tokenExpiryTime;
     
     public TokenManager(String baseUrl, String loginEndpoint, String username, String password, int timeout) {
+        this(baseUrl, loginEndpoint, username, password, timeout, false);
+    }
+    
+    public TokenManager(String baseUrl, String loginEndpoint, String username, String password, int timeout, boolean displayError) {
         this.baseUrl = baseUrl;
         this.loginEndpoint = loginEndpoint;
         this.username = username;
         this.password = password;
         this.timeout = timeout;
+        this.displayError = displayError;
         this.currentToken = null;
         this.tokenExpiryTime = 0;
     }
@@ -84,19 +90,17 @@ public class TokenManager {
                     currentToken = responseBody.substring(tokenStart, tokenEnd);
                     // Set expiry time to 55 minutes from now
                     tokenExpiryTime = System.currentTimeMillis() + (55 * 60 * 1000);
-                    System.out.println(" ** SUCCESS ** UBL ** PA : Authentication successful - Token valid for 55 minutes");
+                    LogCatalog.tokenAuthSuccess().print(displayError);
                     return currentToken;
                 }
             }
             
-            System.err.println(" ** ERROR ** UBL ** PA : Authentication failed - Status: " + response.statusCode());
-            System.err.println(" ** ERROR ** UBL ** PA : Response: " + response.body());
+            LogCatalog.tokenAuthFailed(response.statusCode(), response.body()).print(displayError);
             currentToken = null;
             return null;
 
         } catch (Exception e) {
-            System.err.println(" ** ERROR ** UBL ** PA : Exception during authentication: " + e.getMessage());
-            e.printStackTrace();
+            LogCatalog.tokenAuthException(e.getMessage()).print(displayError);
             currentToken = null;
             return null;
         }

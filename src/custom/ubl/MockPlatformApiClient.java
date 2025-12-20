@@ -23,6 +23,8 @@ public class MockPlatformApiClient implements IPlatformApiClient {
         ALWAYS_SUCCESS,
         /** Always fail */
         ALWAYS_FAILED,
+        /** Token invalid */
+        INVALID_TOKEN,
         /** Alternate: odd calls succeed, even calls fail */
         ALTERNATING,
         /** Random success/failure (70% success rate) */
@@ -109,6 +111,9 @@ public class MockPlatformApiClient implements IPlatformApiClient {
                 return true;
                 
             case ALWAYS_FAILED:
+                return false;
+
+            case INVALID_TOKEN:
                 return false;
                 
             case ALTERNATING:

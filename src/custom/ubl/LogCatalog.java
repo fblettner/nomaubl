@@ -252,6 +252,84 @@ public class LogCatalog {
     }
 
     /**
+     * Mock Token Manager related logs
+     */
+    public static LogEntry mockTokenInitialized(String behavior) {
+        return LogEntry.builder()
+                .level(LEVEL_INFO)
+                .module(MODULE_PA)
+                .submodule(SUB_PA_TOKEN)
+                .message("MockTokenManager initialized with behavior: " + behavior)
+                .build();
+    }
+
+    public static LogEntry mockTokenSuccess(int requestCount, String token) {
+        return LogEntry.builder()
+                .level(LEVEL_SUCCESS)
+                .module(MODULE_PA)
+                .submodule(SUB_PA_TOKEN)
+                .message("Token generated successfully (request #" + requestCount + "): " + token)
+                .build();
+    }
+
+    public static LogEntry mockTokenFailed(int requestCount) {
+        return LogEntry.builder()
+                .level(LEVEL_ERROR)
+                .module(MODULE_PA)
+                .submodule(SUB_PA_TOKEN)
+                .message("Failed to generate token (request #" + requestCount + ") - Simulating authentication failure")
+                .build();
+    }
+
+    public static LogEntry mockTokenExpiring(int requestCount, int maxAttempts) {
+        return LogEntry.builder()
+                .level(LEVEL_WARNING)
+                .module(MODULE_PA)
+                .submodule(SUB_PA_TOKEN)
+                .message("Simulating token expiration scenario (attempt " + requestCount + "/" + maxAttempts + ")")
+                .build();
+    }
+
+    public static LogEntry mockTokenRefreshed() {
+        return LogEntry.builder()
+                .level(LEVEL_INFO)
+                .module(MODULE_PA)
+                .submodule(SUB_PA_TOKEN)
+                .message("Token refresh successful after expiration")
+                .build();
+    }
+
+    /**
+     * Real Token Manager related logs
+     */
+    public static LogEntry tokenAuthSuccess() {
+        return LogEntry.builder()
+                .level(LEVEL_SUCCESS)
+                .module(MODULE_UBL)
+                .submodule(SUB_UBL_PA)
+                .message("Authentication successful - Token valid for 55 minutes")
+                .build();
+    }
+
+    public static LogEntry tokenAuthFailed(int statusCode, String responseBody) {
+        return LogEntry.builder()
+                .level(LEVEL_ERROR)
+                .module(MODULE_UBL)
+                .submodule(SUB_UBL_PA)
+                .message("Authentication failed - Status: " + statusCode + ", Response: " + responseBody)
+                .build();
+    }
+
+    public static LogEntry tokenAuthException(String errorMessage) {
+        return LogEntry.builder()
+                .level(LEVEL_ERROR)
+                .module(MODULE_UBL)
+                .submodule(SUB_UBL_PA)
+                .message("Exception during authentication: " + errorMessage)
+                .build();
+    }
+
+    /**
      * Database related logs
      */
     public static LogEntry dbInsertFailed(String error) {

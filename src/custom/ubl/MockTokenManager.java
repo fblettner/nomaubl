@@ -8,6 +8,7 @@ public class MockTokenManager extends TokenManager {
     
     private int tokenRequestCount = 0;
     private final TokenBehavior behavior;
+    private final boolean displayError;
     
     /**
      * Token simulation behaviors
@@ -26,17 +27,18 @@ public class MockTokenManager extends TokenManager {
     /**
      * Creates a mock token manager with ALWAYS_SUCCESS behavior
      */
-    public MockTokenManager(String baseUrl, String loginEndpoint, String username, String password, int timeout) {
-        this(baseUrl, loginEndpoint, username, password, timeout, TokenBehavior.ALWAYS_SUCCESS);
+    public MockTokenManager(String baseUrl, String loginEndpoint, String username, String password, int timeout, boolean displayError) {
+        this(baseUrl, loginEndpoint, username, password, timeout, TokenBehavior.ALWAYS_SUCCESS, displayError);
     }
     
     /**
      * Creates a mock token manager with specified behavior
      */
-    public MockTokenManager(String baseUrl, String loginEndpoint, String username, String password, int timeout, TokenBehavior behavior) {
+    public MockTokenManager(String baseUrl, String loginEndpoint, String username, String password, int timeout, TokenBehavior behavior, boolean displayError) {
         super(baseUrl, loginEndpoint, username, password, timeout);
         this.behavior = behavior;
-        System.out.println("** INFO ** MOCK ** TOKEN : MockTokenManager initialized with behavior: " + behavior);
+        this.displayError = displayError;
+        LogCatalog.mockTokenInitialized(behavior.toString()).print(displayError);
     }
     
     @Override
@@ -47,10 +49,10 @@ public class MockTokenManager extends TokenManager {
         
         if (success) {
             String mockToken = "MOCK_TOKEN_" + System.currentTimeMillis();
-            System.out.println("** SUCCESS ** MOCK ** TOKEN : Token generated successfully (request #" + tokenRequestCount + "): " + mockToken.substring(0, 20) + "...");
+            LogCatalog.mockTokenSuccess(tokenRequestCount, mockToken.substring(0, 20) + "...").print(displayError);
             return mockToken;
         } else {
-            System.out.println("** ERROR ** MOCK ** TOKEN : Failed to generate token (request #" + tokenRequestCount + ") - Simulating authentication failure");
+            LogCatalog.mockTokenFailed(tokenRequestCount).print(displayError);
             return null;
         }
     }
@@ -69,10 +71,10 @@ public class MockTokenManager extends TokenManager {
             case INVALID_TOKEN:
                 // First 2 requests fail (simulating expired token + refresh issues), then succeed
                 if (tokenRequestCount <= 2) {
-                    System.out.println("** WARNING ** MOCK ** TOKEN : Simulating token expiration scenario (attempt " + tokenRequestCount + "/2)");
+                    LogCatalog.mockTokenExpiring(tokenRequestCount, 2).print(displayError);
                     return false;
                 }
-                System.out.println("** INFO ** MOCK ** TOKEN : Token refresh successful after expiration");
+                LogCatalog.mockTokenRefreshed().print(displayError);
                 return true;
                 
             case RANDOM:
