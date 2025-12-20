@@ -10,9 +10,6 @@ import Frames.DarkTheme;
 import Frames.MainModern;
 import java.io.*;
 import org.w3c.dom.*;
-import javax.xml.transform.*;
-import javax.xml.transform.stream.StreamResult;
-import javax.xml.transform.stream.StreamSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Executors;
@@ -22,12 +19,13 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.CompletionService;
-import oracle.xdo.template.RTFProcessor;
 import oracle.xdo.template.FOProcessor;
 
 import org.simpleframework.xml.Serializer;
 import org.simpleframework.xml.core.Persister;
 import custom.resources.*;
+import custom.resources.BIPublisher.BIPTransformResult;
+import custom.resources.Tranform.TransformResult;
 import custom.ubl.CustomUBL;
 import custom.ubl.UBLValidator;
 import custom.ubl.TokenManager;
@@ -222,52 +220,7 @@ public class ScheduleUBL {
         
     }
 
-    /* Conversion d'un template RTF en XSL */
-    private static ByteArrayOutputStream convertRTFXSL(String inputRTF){
-        
-        ByteArrayOutputStream xslOutStream = new ByteArrayOutputStream();
-        
-        try {
-            FileInputStream   fIs  = new FileInputStream(inputRTF);  //input RTF template
-            RTFProcessor rtfProcessor = new RTFProcessor(fIs);
-            
-            rtfProcessor.setOutput(xslOutStream);
-            rtfProcessor.process();
-        }catch (FileNotFoundException | XDOException e)
-        {
-            errorMessage = e.getMessage();
-            errorCode = 1;
-         }
-        return xslOutStream;
-    }
-      
-    /* Application d'une transformation XSL sur un document XML */
-    private static void transformXSLToXML(String inputXML, String outputXML, String templateXSL){
-        
-        try
-        {
-            // Use the factory to create a template containing the xsl file
-            TransformerFactory factory = TransformerFactory.newInstance();
-            
-            Source xml = new StreamSource(new FileInputStream(inputXML));
-            Source xsl = new StreamSource("file:" + templateXSL);
-            Templates template = factory.newTemplates(xsl);
-            Transformer xformer = template.newTransformer();
-            
-            FileOutputStream fos = new FileOutputStream(outputXML);
-            Result result = new StreamResult(fos);
-            
-            xformer.transform(xml, result);
-            fos.close();
-        }
-        catch (IOException | TransformerException e)
-        {
-           errorMessage = e.getMessage();
-           errorCode = 1;
-        }
-    }
-    
-    
+
     public static void updateUser(String configFile,String jobNumber,String jobName) throws Exception  {
         
       
@@ -405,37 +358,43 @@ public class ScheduleUBL {
 
             /* Application d'une transformation XSLT au début du traitement */
             if (pTransformYN.equals("Y")) {
-                transformXSLToXML(inputXML,tempXML, pTransform);
+                TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML, pTransform);
                 
-                if (errorCode.equals(1)) {
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",errorMessage);
+                if (transformResult.hasError()) {
+                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
                     insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
                     System.exit(1);
                 }
                 inputXML = tempXML;
             }
             
-            ByteArrayOutputStream xslOutStream = convertRTFXSL(pRtfTemplate);
-            if (errorCode.equals(1)) {
-                insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"convertRTFXSL",errorMessage);
+            BIPTransformResult<ByteArrayOutputStream> rtfConversionResult = BIPublisher.convertRTFXSL(pRtfTemplate);
+            ByteArrayOutputStream xslOutStream = rtfConversionResult.getData();
+            if (rtfConversionResult.hasError()) {
+                insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"convertRTFXSL",rtfConversionResult.getErrorMessage());
                 insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
                 System.exit(1);               
             }
                        
             if (paramType.equals("SINGLE")) {
                  if (pDevMode.equals("Y")) {
-                    transformXSLToXML(inputXML,tempXML3,pDevXSL);
-                 }
-                 else {
-                    transformXSLToXML(inputXML,tempXML2,pRoutage);
-                    if (errorCode.equals(1)) {
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",errorMessage);
+                    TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML3,pDevXSL);
+                    if (transformResult.hasError()) {
+                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
                         insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
                         System.exit(1);
                     }
-                    transformXSLToXML(tempXML2,tempXML3,pCopy);
-                    if (errorCode.equals(1)) {
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",errorMessage);
+                 }
+                 else {
+                    TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML2,pRoutage);
+                    if (transformResult.hasError()) {
+                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
+                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                        System.exit(1);
+                    }
+                    TransformResult<Void> transformResultCopy = Tranform.transformXSLToXML(tempXML2,tempXML3,pCopy);
+                    if (transformResultCopy.hasError()) {
+                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResultCopy.getErrorMessage());
                         insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
                         System.exit(1);
                     }
@@ -463,7 +422,12 @@ public class ScheduleUBL {
                 javax.xml.parsers.DocumentBuilder builder = factory.newDocumentBuilder();
                 Document doc = null;
                 if (pDevMode.equals("Y")) {
-                    transformXSLToXML(inputXML,tempXML2,pDevXSL);
+                    TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML2,pDevXSL);
+                    if (transformResult.hasError()) {
+                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
+                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                        System.exit(1);
+                    }
                     doc = builder.parse("file:" + tempXML2);
                 } else {
                     doc = builder.parse("file:" + inputXML);                    

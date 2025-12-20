@@ -89,7 +89,6 @@ public class UBLDatabaseHandler {
             if (is != null) {
                 try {
                     props.load(is);
-                    System.out.println(" ** INFO ** DB ** " + mappingName + " : Code mapping loaded: " + props.size() + " codes");
                 } finally {
                     is.close();
                 }

@@ -10,8 +10,6 @@ import java.io.*;
 import java.util.Base64;
 import org.w3c.dom.*;
 
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.*;
 import javax.xml.transform.dom.*;
 import javax.xml.transform.stream.*;
@@ -21,8 +19,6 @@ import org.simpleframework.xml.core.Persister;
 import custom.resources.*;
 import static custom.resources.Tools.decodePasswd;
 import java.sql.*;
-import oracle.xdo.XDOException;
-import oracle.xdo.template.FOProcessor;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -186,106 +182,6 @@ public class CustomUBL implements Callable<Integer> {
         }
     }
 
-    // Récupérer la valeur d'un tag XML
-    private String getNodeString(String tagName, Element element) {
-        NodeList listNode = element.getElementsByTagName(tagName);
-        if (listNode != null && listNode.getLength() > 0) {
-            NodeList subList = listNode.item(0).getChildNodes();
-
-            if (subList != null && subList.getLength() > 0) {
-                return subList.item(0).getNodeValue();
-            }
-        }
-
-        return null;
-    }
-
-    // Mise en forme PDF via les API BI Publisher
-    private Boolean convertToPDF(InputStream xmlStream, String outputPDF) {
-        try {
-            FOProcessor processor = new FOProcessor();
-
-            // input XML
-            processor.setData(xmlStream);
-            try ( // input XSL template
-                    ByteArrayInputStream xslInStream = new ByteArrayInputStream(xslOutStream.toByteArray())) {
-                processor.setTemplate(xslInStream);
-                // output PDF
-                processor.setOutput(outputPDF);
-                // Format de sortie
-                processor.setOutputFormat(FOProcessor.FORMAT_PDF);
-                processor.setConfig(pXdoConfig);
-                processor.setLocale(pSetLocale);
-                // Traitement
-                processor.generate();
-            }
-
-        } catch (IOException | XDOException e) {
-            return false;
-        }
-        return true;
-    }
-
-    private Boolean convertToXML(InputStream xmlStream, String outputXML) {
-        try {
-            // Use the factory to create a template containing the xsl file
-            TransformerFactory factory = TransformerFactory.newInstance();
-
-            Source xml = new StreamSource(xmlStream);
-            Source xsl = new StreamSource("file:" + pXslTemplate);
-            Templates template = factory.newTemplates(xsl);
-            Transformer xformer = template.newTransformer();
-
-            FileOutputStream fos = new FileOutputStream(outputXML);
-            Result result = new StreamResult(fos);
-
-            xformer.transform(xml, result);
-            fos.close();
-        } catch (IOException | TransformerException e) {
-            return false;
-        }
-        return true;
-    }
-
-    private void executeGS(String inputGS) {
-
-        try {
-            Runtime rt = Runtime.getRuntime();
-            Process proc = rt.exec(inputGS);
-            proc.waitFor();
-        } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
-            System.exit(1);
-        }
-
-    }
-
-    private boolean convertToUBL(InputStream invoiceXmlStream, String outputUblFile) {
-        try {
-            // Use Saxon for XSLT 2.0 support
-            TransformerFactory factory = new net.sf.saxon.TransformerFactoryImpl();
-            Source xml = new StreamSource(invoiceXmlStream);
-            Source xsl = new StreamSource("file:" + pUblXsltPath);
-            Templates template = factory.newTemplates(xsl);
-            Transformer transformer = template.newTransformer();
-
-            try (FileOutputStream fos = new FileOutputStream(outputUblFile)) {
-                Result result = new StreamResult(fos);
-                transformer.transform(xml, result);
-            }
-            return true;
-        } catch (IOException | TransformerException e) {
-            return false;
-        }
-    }
-
-    private Document parseUBLFile(String ublFilePath) throws Exception {
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(true);
-        DocumentBuilder db = dbf.newDocumentBuilder();
-        return db.parse(new File(ublFilePath));
-    }
-
     /**
      * Sends UBL file to the Platform Agréée (PA) via API
      * 
@@ -365,98 +261,6 @@ public class CustomUBL implements Callable<Integer> {
         }
     }
 
-    /**
-     * Embeds a PDF file as base64 in the UBL XML document
-     * 
-     * @param ublFilePath Path to the UBL XML file
-     * @param pdfFilePath Path to the PDF file to embed
-     * @param pdfFileName Filename to use in the attachment
-     * @return true if successful, false otherwise
-     */
-    private boolean embedPdfInUBL(String ublFilePath, String pdfFilePath, String pdfFileName) {
-        try {
-            // Read PDF file and encode to base64
-            File pdfFile = new File(pdfFilePath);
-            if (!pdfFile.exists()) {
-                System.err.println("PDF file not found: " + pdfFilePath);
-                return false;
-            }
-
-            byte[] pdfBytes = new byte[(int) pdfFile.length()];
-            try (FileInputStream fis = new FileInputStream(pdfFile)) {
-                fis.read(pdfBytes);
-            }
-            String base64Pdf = Base64.getEncoder().encodeToString(pdfBytes);
-
-            // Parse UBL XML
-            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-            dbf.setNamespaceAware(true);
-            DocumentBuilder db = dbf.newDocumentBuilder();
-            Document doc = db.parse(new File(ublFilePath));
-
-            Element root = doc.getDocumentElement();
-            String cacNamespace = "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2";
-            String cbcNamespace = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2";
-
-            // Create AdditionalDocumentReference element
-            Element additionalDocRef = doc.createElementNS(cacNamespace, "cac:AdditionalDocumentReference");
-
-            // Add ID element
-            Element id = doc.createElementNS(cbcNamespace, "cbc:ID");
-            id.setTextContent("PDF_Invoice");
-            additionalDocRef.appendChild(id);
-
-            // Create Attachment element
-            Element attachment = doc.createElementNS(cacNamespace, "cac:Attachment");
-
-            // Create EmbeddedDocumentBinaryObject element
-            Element embeddedDoc = doc.createElementNS(cbcNamespace, "cbc:EmbeddedDocumentBinaryObject");
-            embeddedDoc.setAttribute("mimeCode", "application/pdf");
-            embeddedDoc.setAttribute("filename", pdfFileName);
-            embeddedDoc.setTextContent(base64Pdf);
-
-            attachment.appendChild(embeddedDoc);
-            additionalDocRef.appendChild(attachment);
-
-            // Insert AdditionalDocumentReference after the last existing one or before
-            // UBLExtensions if no references exist
-            NodeList existingRefs = root.getElementsByTagNameNS(cacNamespace, "AdditionalDocumentReference");
-            if (existingRefs.getLength() > 0) {
-                // Insert after the last existing reference
-                Node lastRef = existingRefs.item(existingRefs.getLength() - 1);
-                Node nextSibling = lastRef.getNextSibling();
-                if (nextSibling != null) {
-                    root.insertBefore(additionalDocRef, nextSibling);
-                } else {
-                    root.appendChild(additionalDocRef);
-                }
-            } else {
-                // Insert before AccountingSupplierParty or at a reasonable position
-                NodeList supplierParty = root.getElementsByTagNameNS(cacNamespace, "AccountingSupplierParty");
-                if (supplierParty.getLength() > 0) {
-                    root.insertBefore(additionalDocRef, supplierParty.item(0));
-                } else {
-                    // Just append to root
-                    root.appendChild(additionalDocRef);
-                }
-            }
-
-            // Write modified UBL back to file
-            TransformerFactory tf = TransformerFactory.newInstance();
-            Transformer transformer = tf.newTransformer();
-            transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
-            transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-
-            DOMSource source = new DOMSource(doc);
-            StreamResult result = new StreamResult(new File(ublFilePath));
-            transformer.transform(source, result);
-
-            return true;
-
-        } catch (Exception e) {
-            return false;
-        }
-    }
 
     @Override
     public Integer call() throws Exception {
@@ -480,12 +284,11 @@ public class CustomUBL implements Callable<Integer> {
             if (element.hasChildNodes()) {
                 Source src = new DOMSource(element);
                 try {
-                    String doc = getNodeString(pdoc, (Element) element);
-                    String dct = getNodeString(pdct, (Element) element);
-                    String kco = getNodeString(pkco, (Element) element);
-                    String activite = getNodeString(pActivite, (Element) element);
-                    String typePiece = getNodeString(pTypePiece, (Element) element);
-
+                    String doc = Tools.getNodeString(pdoc, (Element) element);
+                    String dct = Tools.getNodeString(pdct, (Element) element);
+                    String kco = Tools.getNodeString(pkco, (Element) element);
+                    String activite = Tools.getNodeString(pActivite, (Element) element);
+                    String typePiece = Tools.getNodeString(pTypePiece, (Element) element);
                     // Create database handler for legacy tables
                     UBLDatabaseHandler dbHandler = new UBLDatabaseHandler(conn, pSchema, doc, dct, kco, pUblConfigPath, displayError);
 
@@ -516,7 +319,7 @@ public class CustomUBL implements Callable<Integer> {
                                 // Recreate InputStream for PDF generation (consumed by UBL in BOTH mode)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
 
-                                if (!convertToPDF(is, pTempOutput + docName + ".pdf")) {
+                                if (!BIPublisher.convertToPDF(is, pTempOutput + docName + ".pdf", xslOutStream, pXdoConfig, pSetLocale)) {
                                     if (pUpdateDB.equals("Y")) {
                                         ValidationResult errResult = new ValidationResult();
                                         errResult.addError(new ValidationError("PDF", "ERROR", "ERREUR CREATION PDF",
@@ -531,10 +334,10 @@ public class CustomUBL implements Callable<Integer> {
                                         gsExec = pCmdGS + pDirOutput + docName + ".pdf " + pTempOutput + docName +
                                                 ".pdf";
                                     }
-                                    executeGS(gsExec);
+                                    Tools.executeGS(gsExec);
 
                                     is = new ByteArrayInputStream(outputStream.toByteArray());
-                                    if (!convertToXML(is, pDirOutput + docName + ".xml")) {
+                                    if (!Tranform.convertToXML(is, pDirOutput + docName + ".xml", pXslTemplate)) {
                                         if (pUpdateDB.equals("Y")) {
                                             ValidationResult errResult = new ValidationResult();
                                             errResult.addError(new ValidationError("XML", "ERROR",
@@ -554,7 +357,7 @@ public class CustomUBL implements Callable<Integer> {
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
 
                                 String ublFile = pDirOutput + docName + "_ubl.xml";
-                                if (!convertToUBL(is, ublFile)) {
+                                if (!Tranform.convertToUBL(is, ublFile, pUblXsltPath)) {
                                     if (pUpdateDB.equals("Y")) {
                                         ValidationResult errResult = new ValidationResult();
                                         errResult.addError(new ValidationError("UBL", "ERROR", "ERREUR CREATION UBL",
@@ -570,7 +373,7 @@ public class CustomUBL implements Callable<Integer> {
                                             pdfFile = pDirOutput + docName + ".pdf";
 
                                         String pdfFileName = docName + ".pdf";
-                                        if (!embedPdfInUBL(ublFile, pdfFile, pdfFileName)) {
+                                        if (!Tranform.embedPdfInUBL(ublFile, pdfFile, pdfFileName)) {
                                             log("WARNING", "UBL", "Attachment",
                                                     "Could not embed PDF attachment in UBL for " + docName);
                                         } else {
@@ -579,7 +382,7 @@ public class CustomUBL implements Callable<Integer> {
                                         }
                                     }
 
-                                    Document ublDoc = parseUBLFile(ublFile);
+                                    Document ublDoc = Tranform.parseUBLFile(ublFile);
                                     ValidationResult validResult = pUBLValidator.validateUbl(ublDoc);
 
                                     // Populate UBL tables if enabled (before sending to PA)
@@ -591,7 +394,7 @@ public class CustomUBL implements Callable<Integer> {
                                                     "Invoice created in JDE");
 
                                             // Insert header
-                                            String numClient = getNodeString(pNumClient, (Element) element);
+                                            String numClient = Tools.getNodeString(pNumClient, (Element) element);
                                             if (dbHandler.insertUBLHeader(ublDoc, 
                                                     null, null, null, null, numClient)) {
                                                 // Insert lines
