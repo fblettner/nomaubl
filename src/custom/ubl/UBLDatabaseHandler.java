@@ -191,13 +191,13 @@ public class UBLDatabaseHandler {
      * Corresponds to Invoice header according to EN 16931
      */
     public boolean insertUBLHeader(Document ublDoc, String originalDoc, 
-                                   String originalDct, String originalKco, String customerAN8, String customerALKY, String status) 
+                                   String originalDct, String originalKco, String customerAN8, String customerALKY, String status, String statusMessage) 
                                    throws Exception {
         
         String sql = "INSERT INTO " + schema + ".F564231 (" +
                 "UHDOC, UHDCT, UHKCO, UHODOC, UHODCT, UHOKCO, UHK74FLEN, UHK74XMLV, UHK74LDDJ, UHDDJ, UHK74LEDT, " +
-                "UHATXA, UHSTAM, UHAG, UHAAP, UHCRCD, UHK74MSG1, UH55RSF, UHY74CTID, UHAN8, UHALKY, UHTXFT, " +
-                "UHK74INVST, UHRMK, UHSBA1, UHY56PYIN, UHUSER, UHPID, UHJOBN, UHUPMJ, UHTDAY, UHY56RULE" +
+                "UHATXA, UHSTAM, UHAG, UHAAP, UHCRCD, UHK74MSG2, UH55RSF, UHY74CTID, UHAN8, UHALKY, UHTXFT, " +
+                "UHK74RSCD, UHK74MSG1, UHRMK, UHSBA1, UHY56PYIN, UHUSER, UHPID, UHJOBN, UHUPMJ, UHTDAY" +
                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -273,25 +273,25 @@ public class UBLDatabaseHandler {
             
             // Status
             setStringOrBlank(stmt, 23, status);                                      // K74INVST
+            setStringOrBlank(stmt, 24, statusMessage);                               // K74MSG1
             
             // Customer Endpoint (BT-49, BT-49-1)
             String endpointID = getXPathValue(ublDoc, "//cac:AccountingCustomerParty/cac:Party/cbc:EndpointID");
-            setStringOrBlank(stmt, 24, endpointID);                                        // RMK (BT-49)
+            setStringOrBlank(stmt, 25, endpointID);                                        // RMK (BT-49)
             
             String endpointScheme = getXPathValue(ublDoc, "//cac:AccountingCustomerParty/cac:Party/cbc:EndpointID/@schemeID");
-            stmt.setString(25, endpointScheme);                                            // SBA1 (BT-49-1)
+            stmt.setString(26, endpointScheme);                                            // SBA1 (BT-49-1)
             
             // Payment means (BT-81)
             String paymentMeansCode = getXPathValue(ublDoc, "//cac:PaymentMeans/cbc:PaymentMeansCode");
-            stmt.setString(26, paymentMeansCode);                                         // Y56PYIN (BT-81)
+            stmt.setString(27, paymentMeansCode);                                         // Y56PYIN (BT-81)
             
             // Audit fields
-            stmt.setString(27, "NOMAUBL");                                                 // USER
-            stmt.setString(28, "NOMAUBL");                                                 // PID
-            stmt.setString(29, "BIP");                                                     // JOBN
-            stmt.setInt(30, getCurrentJDEDate());                                          // UPMJ
-            stmt.setInt(31, getCurrentJDETime());                                          // TDAY
-            setStringOrBlank(stmt, 32, null);                                           // Y56RULE
+            stmt.setString(28, "NOMAUBL");                                                 // USER
+            stmt.setString(29, "NOMAUBL");                                                 // PID
+            stmt.setString(30, "BIP");                                                     // JOBN
+            stmt.setInt(31, getCurrentJDEDate());                                          // UPMJ
+            stmt.setInt(32, getCurrentJDETime());                                          // TDAY
             
             stmt.executeUpdate();
             return true;
@@ -609,17 +609,18 @@ public class UBLDatabaseHandler {
     /**
      * Update invoice status in F564231
      */
-    public boolean updateInvoiceStatus(String status) {
+    public boolean updateInvoiceStatus(String status, String statutMessage) {
         
-        String sql = "UPDATE " + schema + ".F564231 SET UHK74INVST=?, UHUPMJ=?, UHTDAY=? WHERE UHDOC=? AND UHDCT=? AND UHKCO=?";
+        String sql = "UPDATE " + schema + ".F564231 SET UHK74RSCD=?, UHK74MSG1=?, UHUPMJ=?, UHTDAY=? WHERE UHDOC=? AND UHDCT=? AND UHKCO=?";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            setStringOrBlank(stmt, 1, status);                                       // UHK74INVST
-            stmt.setInt(2, getCurrentJDEDate());                                           // UHUPMJ
-            stmt.setInt(3, getCurrentJDETime());                                           // UHTDAY
-            stmt.setInt(4, Integer.parseInt(doc));                                       // USDOC
-            stmt.setString(5, dct);                                                        // USDCT
-            stmt.setString(6, kco);                                                        // USKCO
+            setStringOrBlank(stmt, 1, status);                                          // K74RSCD
+            setStringOrBlank(stmt, 2, statutMessage);                                   // K74MSG1 (empty or message)
+            stmt.setInt(3, getCurrentJDEDate());                                    // UHUPMJ
+            stmt.setInt(4, getCurrentJDETime());                                    // UHTDAY
+            stmt.setInt(5, Integer.parseInt(doc));                                  // USDOC
+            stmt.setString(6, dct);                                                 // USDCT
+            stmt.setString(7, kco);                                                 // USKCO
             
             int updated = stmt.executeUpdate();
             if (updated > 0) {

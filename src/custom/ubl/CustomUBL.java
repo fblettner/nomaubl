@@ -79,7 +79,8 @@ public class CustomUBL implements Callable<Integer> {
     /**
      * Helper method to update invoice status with database error handling
      */
-    private void updateStatus(InvoiceStatusCatalog.StatusTransition status, UBLDatabaseHandler dbHandler, Connection conn) {
+    private void updateStatus(InvoiceStatusCatalog.StatusTransition status, UBLDatabaseHandler dbHandler,
+            Connection conn) {
         if (!"Y".equalsIgnoreCase(pUpdateDB) || conn == null) {
             return;
         }
@@ -98,7 +99,7 @@ public class CustomUBL implements Callable<Integer> {
         updateStatus(InvoiceStatusCatalog.sent(), dbHandler, conn);
 
         boolean sendSuccess = pPlatformApiClient.sendDocument(ublFile, docName);
-        
+
         if (!sendSuccess) {
             // Log error in validation results
             if ("Y".equalsIgnoreCase(pUpdateDB)) {
@@ -107,7 +108,7 @@ public class CustomUBL implements Callable<Integer> {
                 dbHandler.insertValidationResults(errResult);
             }
             // Update status to ERROR
-            updateStatus(InvoiceStatusCatalog.errorSend(), dbHandler, conn);
+            updateStatus(InvoiceStatusCatalog.errorSent(), dbHandler, conn);
         } else {
             // Update status to DEPOSEE (deposited)
             updateStatus(InvoiceStatusCatalog.deposited(), dbHandler, conn);
@@ -170,12 +171,11 @@ public class CustomUBL implements Callable<Integer> {
             String paApiImportEndpoint = resource.getProperty("paApiImportEndpoint");
             String timeout = resource.getProperty("paApiTimeout");
             int paApiTimeout = (timeout != null) ? Integer.parseInt(timeout) : 30000;
-            
+
             // Check if mock mode is enabled
             String useMock = resource.getProperty("paUseMock");
             String mockBehavior = resource.getProperty("paMockBehavior");
-            
-            
+
             resource = resources.getResourceByName(pTemplate);
             pdoc = resource.getProperty("docID");
             pActivite = resource.getProperty("activite");
@@ -191,8 +191,7 @@ public class CustomUBL implements Callable<Integer> {
             pUblXsltPath = replaceConstValue(resource.getProperty("ublXslt"));
             pAttachment = resource.getProperty("attachment");
 
-           
-          // Initialize PA API client (real or mock)
+            // Initialize PA API client (real or mock)
             if ("Y".equalsIgnoreCase(useMock)) {
                 MockPlatformApiClient.MockBehavior behavior = MockPlatformApiClient.MockBehavior.ALWAYS_SUCCESS;
                 if (mockBehavior != null) {
@@ -203,22 +202,20 @@ public class CustomUBL implements Callable<Integer> {
                     }
                 }
                 pPlatformApiClient = new MockPlatformApiClient(
-                    paMode,
-                    paApiBaseUrl,
-                    paApiImportEndpoint,
-                    paApiTimeout,
-                    displayError,
-                    behavior
-                );
+                        paMode,
+                        paApiBaseUrl,
+                        paApiImportEndpoint,
+                        paApiTimeout,
+                        displayError,
+                        behavior);
             } else {
                 pPlatformApiClient = new PlatformApiClient(
-                    paMode,
-                    paApiBaseUrl,
-                    paApiImportEndpoint,
-                    paApiTimeout,
-                    pTokenManager,
-                    displayError
-                );
+                        paMode,
+                        paApiBaseUrl,
+                        paApiImportEndpoint,
+                        paApiTimeout,
+                        pTokenManager,
+                        displayError);
             }
 
         } catch (Exception e) {
@@ -356,7 +353,9 @@ public class CustomUBL implements Callable<Integer> {
                                             // Insert header
                                             String numClient = Tools.getNodeString(pNumClient, (Element) element);
                                             if (dbHandler.insertUBLHeader(ublDoc,
-                                                    null, null, null, null, numClient, InvoiceStatusCatalog.STATUS_ISSUED)) {
+                                                    null, null, null, null, numClient,
+                                                    InvoiceStatusCatalog.STATUS_CREATED,
+                                                    InvoiceStatusCatalog.MSG_CREATED)) {
                                                 // Insert lines
                                                 dbHandler.insertUBLLines(ublDoc);
 
@@ -398,10 +397,11 @@ public class CustomUBL implements Callable<Integer> {
     }
 
     /**
-     * Handle validation failure - log errors/warnings and potentially send to PA in force mode
+     * Handle validation failure - log errors/warnings and potentially send to PA in
+     * force mode
      */
-    private void handleValidationFailure(ValidationResult validResult, String docName, String ublFile, 
-                                         UBLDatabaseHandler dbHandler, Connection conn) {
+    private void handleValidationFailure(ValidationResult validResult, String docName, String ublFile,
+            UBLDatabaseHandler dbHandler, Connection conn) {
         // Display all errors/warnings
         for (ValidationError e : validResult.getErrors()) {
             String ruleId = e.getRuleId() != null ? e.getRuleId() : "UNDEFINED";
@@ -425,17 +425,17 @@ public class CustomUBL implements Callable<Integer> {
     /**
      * Handle validation success - log success and send to PA if enabled
      */
-    private void handleValidationSuccess(String typePiece, String docName, String ublFile, 
-                                         UBLDatabaseHandler dbHandler, Connection conn) {
+    private void handleValidationSuccess(String typePiece, String docName, String ublFile,
+            UBLDatabaseHandler dbHandler, Connection conn) {
         log(LogCatalog.ublValidationSuccess(typePiece, docName));
 
         // Update status to VALIDATED
         updateStatus(InvoiceStatusCatalog.validated(), dbHandler, conn);
 
         // Send to PA if enabled (Y or F mode) - not in validation-only mode
-        boolean shouldSendToPA = !pParamType.equals("UBL_VALIDATE") 
+        boolean shouldSendToPA = !pParamType.equals("UBL_VALIDATE")
                 && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA));
-        
+
         if (shouldSendToPA) {
             sendToPlatformAPI(ublFile, docName, dbHandler, conn);
         }

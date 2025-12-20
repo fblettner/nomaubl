@@ -16,7 +16,7 @@ public class MockTokenManager extends TokenManager {
         /** Always return valid token */
         ALWAYS_SUCCESS,
         /** Always fail to get token */
-        ALWAYS_FAIL,
+        ALWAYS_FAILED,
         /** First 2 attempts fail (simulate expiration), then succeed */
         INVALID_TOKEN,
         /** Random success/failure */
@@ -63,7 +63,7 @@ public class MockTokenManager extends TokenManager {
             case ALWAYS_SUCCESS:
                 return true;
                 
-            case ALWAYS_FAIL:
+            case ALWAYS_FAILED:
                 return true;
                 
             case INVALID_TOKEN:

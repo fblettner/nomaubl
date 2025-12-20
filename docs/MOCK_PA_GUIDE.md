@@ -14,7 +14,7 @@ paUseMock=Y
 # Mock behavior (optional, defaults to ALWAYS_SUCCESS)
 # Available behaviors:
 #   ALWAYS_SUCCESS  - All calls succeed
-#   ALWAYS_FAIL     - All calls fail
+#   ALWAYS_FAILED     - All calls fail
 #   ALTERNATING     - Odd calls succeed, even calls fail
 #   INVALID_TOKEN   - Create Token fail
 #   RANDOM          - Random success/failure (70% success rate)
@@ -93,7 +93,7 @@ Or remove the property entirely (defaults to real API).
 ## Testing Workflow
 
 1. **Development Phase**: Use `ALWAYS_SUCCESS` to test happy path
-2. **Error Handling**: Use `ALWAYS_FAIL` to test error scenarios
+2. **Error Handling**: Use `ALWAYS_FAILED` to test error scenarios
 3. **Status Transitions**: Use `ALTERNATING` to test different status flows
 4. **Integration Testing**: Use `RANDOM` for realistic mixed scenarios
 5. **Production Ready**: Switch to `paUseMock=N` for real API

@@ -21,10 +21,15 @@ public class InvoiceStatusCatalog {
     public static final String STATUS_PARTIALLY_APPROVED = "49";   // Approuvée Partiellement
     public static final String STATUS_REFUSED = "50";              // Refusée
     public static final String STATUS_ISSUED = "51";               // Emise
-    public static final String STATUS_VALIDATED_WARN = "44";       // Internal: validation with warnings
 
     // ========== CUSTOM STATUS CODES (for internal workflow) ==========
-     public static final String UNDEFINED = "99";                    // Internal: validation with warnings
+    public static final String STATUS_CREATED = "9900";       // Internal: validation with warnings
+    public static final String STATUS_VALIDATED = "9901";       // Internal: validation with warnings
+    public static final String STATUS_VALIDATED_WARN = "9902";       // Internal: validation with warnings
+    public static final String STATUS_SENT_TO_PA = "9903";       // Internal: send to PA
+    public static final String STATUS_ERROR_SENT = "9904";       // Internal: send to PA
+    public static final String STATUS_ERROR_VALIDATION = "9905";       // Internal: validation error
+    public static final String STATUS_UNDEFINED = "9999";                  // Internal: undefined status
 
     // ========== LIFECYCLE EVENT MESSAGES (French - UNTDID 1373) ==========
     public static final String MSG_APPROVED = "Approuvée";
@@ -40,12 +45,12 @@ public class InvoiceStatusCatalog {
     public static final String MSG_PARTIALLY_APPROVED = "Approuvée Partiellement";
     public static final String MSG_REFUSED = "Refusée";
     public static final String MSG_ISSUED = "Emise";
-    public static final String MSG_VALIDATED_WARN = "Validation avec avertissements";
     
     // Additional context messages
     public static final String MSG_CREATED = "Facture créée";
     public static final String MSG_VALIDATED = "Validation réussie";
-    public static final String MSG_SENT = "Envoyée à la PA";
+    public static final String MSG_VALIDATED_WARN = "Validation avec avertissements";
+    public static final String MSG_SEND = "Envoi à la PA";
     public static final String MSG_ERROR_SEND = "Échec d'envoi à la PA";
     public static final String MSG_ERROR_VALIDATION = "Échec de validation";
 
@@ -76,7 +81,7 @@ public class InvoiceStatusCatalog {
          * @throws Exception if update or insert fails
          */
         public void apply(UBLDatabaseHandler dbHandler) throws Exception {
-            dbHandler.updateInvoiceStatus(status);
+            dbHandler.updateInvoiceStatus(status, message);
             dbHandler.insertLifecycleEvent(status, message);
         }
     }
@@ -87,14 +92,14 @@ public class InvoiceStatusCatalog {
      * Status transition for invoice creation (51 - Emise)
      */
     public static StatusTransition created() {
-        return new StatusTransition(STATUS_ISSUED, MSG_CREATED);
+        return new StatusTransition(STATUS_CREATED, MSG_CREATED);
     }
 
     /**
      * Status transition for successful validation (1 - Approuvée)
      */
     public static StatusTransition validated() {
-        return new StatusTransition(STATUS_APPROVED, MSG_VALIDATED);
+        return new StatusTransition(STATUS_VALIDATED, MSG_VALIDATED);
     }
 
     /**
@@ -108,7 +113,7 @@ public class InvoiceStatusCatalog {
      * Status transition for sending to PA (10 - Déposée)
      */
     public static StatusTransition sent() {
-        return new StatusTransition(STATUS_DEPOSITED, MSG_SENT);
+        return new StatusTransition(STATUS_SENT_TO_PA, MSG_SEND);
     }
 
     /**
@@ -121,15 +126,15 @@ public class InvoiceStatusCatalog {
     /**
      * Status transition for send error (8 - Rejetée)
      */
-    public static StatusTransition errorSend() {
-        return new StatusTransition(STATUS_REJECTED, MSG_ERROR_SEND);
+    public static StatusTransition errorSent() {
+        return new StatusTransition(STATUS_ERROR_SENT, MSG_ERROR_SEND);
     }
 
     /**
      * Status transition for validation error (8 - Rejetée)
      */
     public static StatusTransition errorValidation() {
-        return new StatusTransition(STATUS_REJECTED, MSG_ERROR_VALIDATION);
+        return new StatusTransition(STATUS_ERROR_VALIDATION, MSG_ERROR_VALIDATION);
     }
 
     /**
