@@ -7,7 +7,6 @@
 package custom.ubl;
 
 import java.io.*;
-import java.util.Base64;
 import org.w3c.dom.*;
 
 import javax.xml.transform.*;
@@ -19,11 +18,6 @@ import org.simpleframework.xml.core.Persister;
 import custom.resources.*;
 import static custom.resources.Tools.decodePasswd;
 import java.sql.*;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 
 public class CustomUBL implements Callable<Integer> {
 
@@ -71,35 +65,7 @@ public class CustomUBL implements Callable<Integer> {
     private TokenManager pTokenManager;
     private String pAttachment;
     private String pSendToPA;
-    private String pPaMode;
-    private String pPaApiBaseUrl;
-    private String pPaApiImportEndpoint;
-    private int pPaApiTimeout;
-
-    /**
-     * Generic logging function following standard format: ** LEVEL ** MODULE **
-     * SUBMODULE : message
-     * 
-     * @param level     Log level (INFO, SUCCESS, WARNING, ERROR)
-     * @param module    Module name (UBL, DB, PA, etc.)
-     * @param submodule Submodule or component name
-     * @param message   Log message
-     */
-    private void log(String level, String module, String submodule, String message) {
-        String logMsg = String.format(" ** %s ** %s ** %s : %s",
-                level.toUpperCase(),
-                module.toUpperCase(),
-                submodule,
-                message);
-
-        if (displayError) {
-            if ("ERROR".equalsIgnoreCase(level)) {
-                System.err.println(logMsg);
-            } else {
-                System.out.println(logMsg);
-            }
-        }
-    }
+    private IPlatformApiClient pPlatformApiClient;
 
     /**
      * Log using a LogEntry from LogCatalog
@@ -108,6 +74,44 @@ public class CustomUBL implements Callable<Integer> {
      */
     private void log(LogCatalog.LogEntry entry) {
         entry.print(displayError);
+    }
+
+    /**
+     * Helper method to update invoice status with database error handling
+     */
+    private void updateStatus(InvoiceStatusCatalog.StatusTransition status, UBLDatabaseHandler dbHandler, Connection conn) {
+        if (!"Y".equalsIgnoreCase(pUpdateDB) || conn == null) {
+            return;
+        }
+        try {
+            status.apply(dbHandler);
+        } catch (Exception e) {
+            log(LogCatalog.dbUpdateFailed(e.getMessage()));
+        }
+    }
+
+    /**
+     * Helper method to send document to Platform API and handle status updates
+     */
+    private void sendToPlatformAPI(String ublFile, String docName, UBLDatabaseHandler dbHandler, Connection conn) {
+        // Update status before sending
+        updateStatus(InvoiceStatusCatalog.sent(), dbHandler, conn);
+
+        boolean sendSuccess = pPlatformApiClient.sendDocument(ublFile, docName);
+        
+        if (!sendSuccess) {
+            // Log error in validation results
+            if ("Y".equalsIgnoreCase(pUpdateDB)) {
+                ValidationResult errResult = new ValidationResult();
+                errResult.addError(ErrorCatalog.paSendError());
+                dbHandler.insertValidationResults(errResult);
+            }
+            // Update status to ERROR
+            updateStatus(InvoiceStatusCatalog.errorSend(), dbHandler, conn);
+        } else {
+            // Update status to DEPOSEE (deposited)
+            updateStatus(InvoiceStatusCatalog.deposited(), dbHandler, conn);
+        }
     }
 
     private String replaceConstValue(String inputStr) {
@@ -159,6 +163,19 @@ public class CustomUBL implements Callable<Integer> {
             pDBPasswd = decodePasswd(resource.getProperty("DBPassword"));
             pXdoConfig = resource.getProperty("xdo");
 
+            // Load PA API configuration from global template
+            pSendToPA = resource.getProperty("sendToPA");
+            String paMode = resource.getProperty("paMode");
+            String paApiBaseUrl = resource.getProperty("paApiBaseUrl");
+            String paApiImportEndpoint = resource.getProperty("paApiImportEndpoint");
+            String timeout = resource.getProperty("paApiTimeout");
+            int paApiTimeout = (timeout != null) ? Integer.parseInt(timeout) : 30000;
+            
+            // Check if mock mode is enabled
+            String useMock = resource.getProperty("paUseMock");
+            String mockBehavior = resource.getProperty("paMockBehavior");
+            
+            
             resource = resources.getResourceByName(pTemplate);
             pdoc = resource.getProperty("docID");
             pActivite = resource.getProperty("activite");
@@ -174,96 +191,39 @@ public class CustomUBL implements Callable<Integer> {
             pUblXsltPath = replaceConstValue(resource.getProperty("ublXslt"));
             pAttachment = resource.getProperty("attachment");
 
-            // Load PA API configuration from global template
-            resource = resources.getResourceByName("global");
-            pSendToPA = resource.getProperty("sendToPA");
-            pPaMode = resource.getProperty("paMode");
-            pPaApiBaseUrl = resource.getProperty("paApiBaseUrl");
-            pPaApiImportEndpoint = resource.getProperty("paApiImportEndpoint");
-            String timeout = resource.getProperty("paApiTimeout");
-            pPaApiTimeout = (timeout != null) ? Integer.parseInt(timeout) : 30000;
+           
+          // Initialize PA API client (real or mock)
+            if ("Y".equalsIgnoreCase(useMock)) {
+                MockPlatformApiClient.MockBehavior behavior = MockPlatformApiClient.MockBehavior.ALWAYS_SUCCESS;
+                if (mockBehavior != null) {
+                    try {
+                        behavior = MockPlatformApiClient.MockBehavior.valueOf(mockBehavior.toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        // Use default behavior
+                    }
+                }
+                pPlatformApiClient = new MockPlatformApiClient(
+                    paMode,
+                    paApiBaseUrl,
+                    paApiImportEndpoint,
+                    paApiTimeout,
+                    displayError,
+                    behavior
+                );
+            } else {
+                pPlatformApiClient = new PlatformApiClient(
+                    paMode,
+                    paApiBaseUrl,
+                    paApiImportEndpoint,
+                    paApiTimeout,
+                    pTokenManager,
+                    displayError
+                );
+            }
 
         } catch (Exception e) {
             e.printStackTrace();
             // System.exit(1);
-        }
-    }
-
-    /**
-     * Sends UBL file to the Platform Agréée (PA) via API
-     * 
-     * @param ublFilePath Path to the UBL XML file
-     * @param docName     Document name for logging
-     * @return true if successful, false otherwise
-     */
-    private boolean sendToPlatform(String ublFilePath, String docName) {
-        if (!"API".equalsIgnoreCase(pPaMode)) {
-            log(LogCatalog.paNotApi(docName));
-            return true;
-        }
-
-        if (pTokenManager == null) {
-            log(LogCatalog.paTokenManagerNotInitialized(docName));
-            return false;
-        }
-
-        try {
-            // Read UBL file and encode to base64
-            File ublFile = new File(ublFilePath);
-            byte[] ublBytes = new byte[(int) ublFile.length()];
-            try (FileInputStream fis = new FileInputStream(ublFile)) {
-                fis.read(ublBytes);
-            }
-            String base64Ubl = Base64.getEncoder().encodeToString(ublBytes);
-
-            // Try sending with current token, retry once with refreshed token if 401
-            for (int attempt = 0; attempt < 2; attempt++) {
-                String token = pTokenManager.getToken();
-                if (token == null) {
-                    log(LogCatalog.paAuthFailed(docName));
-                    return false;
-                }
-
-                HttpClient client = HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofMillis(pPaApiTimeout))
-                        .build();
-
-                String jsonPayload = String.format(
-                        "{\"format\":\"xml_ubl\",\"content\":\"%s\",\"postActions\":[]}",
-                        base64Ubl);
-
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(pPaApiBaseUrl + pPaApiImportEndpoint))
-                        .timeout(Duration.ofMillis(pPaApiTimeout))
-                        .header("Content-Type", "application/json")
-                        .header("Authorization", "Bearer " + token)
-                        .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                        .build();
-
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-
-                if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    log(LogCatalog.paDocumentSent(docName));
-                    log(LogCatalog.info(LogCatalog.MODULE_UBL, LogCatalog.SUB_UBL_PA, "Response: " + response.body()));
-                    return true;
-                } else if (response.statusCode() == 401 && attempt == 0) {
-                    // Token expired, refresh and retry
-                    log(LogCatalog.paTokenExpired(docName));
-                    pTokenManager.refreshToken();
-                    continue;
-                } else {
-                    log(LogCatalog.paSendError(docName, response.statusCode()));
-                    log(LogCatalog.error(LogCatalog.MODULE_UBL, LogCatalog.SUB_UBL_PA, "Response: " + response.body()));
-                    return false;
-                }
-            }
-
-            return false;
-
-        } catch (Exception e) {
-            log(LogCatalog.paSendException(docName, e.getMessage()));
-            e.printStackTrace();
-            return false;
         }
     }
 
@@ -414,125 +374,11 @@ public class CustomUBL implements Callable<Integer> {
                                         }
                                     }
 
+                                    // Process validation results
                                     if (!validResult.isValid()) {
-                                        // Display all errors/warnings
-                                        for (ValidationError e : validResult.getErrors()) {
-                                            String ruleId = e.getRuleId() != null ? e.getRuleId() : "UNDEFINED";
-                                            log(e.getSeverity(), e.getSource(), ruleId, e.getMessage());
-                                        }
-
-                                        // Update status to VALIDATED (with warnings) if UBL tables populated
-                                        if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                            try {
-                                                InvoiceStatusCatalog.validatedWithWarnings().apply(dbHandler);
-                                            } catch (Exception e) {
-                                                log(LogCatalog.dbUpdateFailed(e.getMessage()));
-                                            }
-                                        }
-
-                                        // Check if only warnings (no errors)
-                                        boolean hasOnlyWarnings = true;
-                                        for (ValidationError err : validResult.getErrors()) {
-                                            if (!"WARNING".equalsIgnoreCase(err.getSeverity().toUpperCase())) {
-                                                hasOnlyWarnings = false;
-                                                break;
-                                            }
-                                        }
-
-                                        // Send to PA if F (force) mode and only warnings (not in validation-only mode)
-                                        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA)
-                                                && hasOnlyWarnings) {
-                                            log(LogCatalog.ublForceSendToPA(docName));
-
-                                            // Update status before sending
-                                            if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                                try {
-                                                    InvoiceStatusCatalog.sent().apply(dbHandler);
-                                                } catch (Exception e) {
-                                                    log(LogCatalog.dbUpdateFailed(e.getMessage()));
-                                                }
-                                            }
-
-                                            if (!sendToPlatform(ublFile, docName)) {
-                                                if (pUpdateDB.equals("Y")) {
-                                                    ValidationResult errResult = new ValidationResult();
-                                                    errResult.addError(ErrorCatalog.paSendError());
-                                                    dbHandler.insertValidationResults(
-                                                            errResult);
-                                                }
-
-                                                // Update status to ERROR
-                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                                    try {
-                                                        InvoiceStatusCatalog.errorSend().apply(dbHandler);
-                                                    } catch (Exception e) {
-                                                        log(LogCatalog.dbUpdateFailed(e.getMessage()));
-                                                    }
-                                                }
-                                            } else {
-                                                // Update status to DEPOSEE (deposited)
-                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                                    try {
-                                                        InvoiceStatusCatalog.deposited().apply(dbHandler);
-                                                    } catch (Exception ex) {
-                                                        log(LogCatalog.dbUpdateFailed(ex.getMessage()));
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        handleValidationFailure(validResult, docName, ublFile, dbHandler, conn);
                                     } else {
-                                        log(LogCatalog.ublValidationSuccess(typePiece, docName));
-
-                                        // Update status to VALIDATED if UBL tables populated
-                                        if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                            try {
-                                                InvoiceStatusCatalog.validated().apply(dbHandler);
-                                            } catch (Exception e) {
-                                                log(LogCatalog.dbUpdateFailed(e.getMessage()));
-                                            }
-                                        }
-
-                                        // Send to PA if enabled (Y or F mode) - not in validation-only mode
-                                        if (!pParamType.equals("UBL_VALIDATE")
-                                                && ("Y".equalsIgnoreCase(pSendToPA)
-                                                        || "F".equalsIgnoreCase(pSendToPA))) {
-
-                                            // Update status before sending
-                                            if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                                try {
-                                                    InvoiceStatusCatalog.sent().apply(dbHandler);
-                                                } catch (Exception ex2) {
-                                                    log(LogCatalog.dbUpdateFailed(ex2.getMessage()));
-                                                }
-                                            }
-
-                                            if (!sendToPlatform(ublFile, docName)) {
-                                                if (pUpdateDB.equals("Y")) {
-                                                    ValidationResult errResult = new ValidationResult();
-                                                    errResult.addError(ErrorCatalog.paSendError());
-                                                    dbHandler.insertValidationResults(
-                                                            errResult);
-                                                }
-
-                                                // Update status to ERROR
-                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                                    try {
-                                                        InvoiceStatusCatalog.errorSend().apply(dbHandler);
-                                                    } catch (Exception ex3) {
-                                                        log(LogCatalog.dbUpdateFailed(ex3.getMessage()));
-                                                    }
-                                                }
-                                            } else {
-                                                // Update status to DEPOSEE (deposited)
-                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
-                                                    try {
-                                                        InvoiceStatusCatalog.deposited().apply(dbHandler);
-                                                    } catch (Exception ex4) {
-                                                        log(LogCatalog.dbUpdateFailed(ex4.getMessage()));
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        handleValidationSuccess(typePiece, docName, ublFile, dbHandler, conn);
                                     }
                                 }
                             }
@@ -546,9 +392,53 @@ public class CustomUBL implements Callable<Integer> {
                 }
             }
         }
-        if (pUpdateDB.equals("Y"))
+        if ("Y".equalsIgnoreCase(pUpdateDB))
             conn.close();
         return 0;
+    }
+
+    /**
+     * Handle validation failure - log errors/warnings and potentially send to PA in force mode
+     */
+    private void handleValidationFailure(ValidationResult validResult, String docName, String ublFile, 
+                                         UBLDatabaseHandler dbHandler, Connection conn) {
+        // Display all errors/warnings
+        for (ValidationError e : validResult.getErrors()) {
+            String ruleId = e.getRuleId() != null ? e.getRuleId() : "UNDEFINED";
+            log(LogCatalog.generic(e.getSeverity(), e.getSource(), ruleId, e.getMessage()));
+        }
+
+        // Update status to VALIDATED (with warnings)
+        updateStatus(InvoiceStatusCatalog.validatedWithWarnings(), dbHandler, conn);
+
+        // Check if only warnings (no errors)
+        boolean hasOnlyWarnings = validResult.getErrors().stream()
+                .allMatch(err -> "WARNING".equalsIgnoreCase(err.getSeverity()));
+
+        // Send to PA if F (force) mode and only warnings (not in validation-only mode)
+        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA) && hasOnlyWarnings) {
+            log(LogCatalog.ublForceSendToPA(docName));
+            sendToPlatformAPI(ublFile, docName, dbHandler, conn);
+        }
+    }
+
+    /**
+     * Handle validation success - log success and send to PA if enabled
+     */
+    private void handleValidationSuccess(String typePiece, String docName, String ublFile, 
+                                         UBLDatabaseHandler dbHandler, Connection conn) {
+        log(LogCatalog.ublValidationSuccess(typePiece, docName));
+
+        // Update status to VALIDATED
+        updateStatus(InvoiceStatusCatalog.validated(), dbHandler, conn);
+
+        // Send to PA if enabled (Y or F mode) - not in validation-only mode
+        boolean shouldSendToPA = !pParamType.equals("UBL_VALIDATE") 
+                && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA));
+        
+        if (shouldSendToPA) {
+            sendToPlatformAPI(ublFile, docName, dbHandler, conn);
+        }
     }
 
 }

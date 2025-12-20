@@ -27,6 +27,7 @@ import custom.resources.*;
 import custom.resources.BIPublisher.BIPTransformResult;
 import custom.resources.Tranform.TransformResult;
 import custom.ubl.CustomUBL;
+import custom.ubl.MockTokenManager;
 import custom.ubl.UBLValidator;
 import custom.ubl.TokenManager;
 
@@ -74,12 +75,14 @@ public class ScheduleUBL {
     private static Integer errorCode = 0;
     private static String pXsdPath;
     private static String pSchematronPath;
-    private static String pSendToPA;
-    private static String pPaApiBaseUrl;
-    private static String pPaApiLoginEndpoint;
-    private static String pPaApiUsername;
-    private static String pPaApiPassword;
-    private static int pPaApiTimeout;
+    private static String paApiBaseUrl;
+    private static String paApiLoginEndpoint;
+    private static String paApiUsername;
+    private static String paApiPassword;
+    private static int paApiTimeout;
+                        
+    private static String useMock;
+    private static String mockBehavior;
     
     /* Remplacement des variables dans les emplacements de fichier */
     private static String replaceConstValue (String inputStr) {
@@ -120,15 +123,15 @@ public class ScheduleUBL {
             pDevXSL = replaceConstValue(resource.getProperty("devXSL"));
             pXsdPath = replaceConstValue(resource.getProperty("ublXsdPath"));
             pSchematronPath = replaceConstValue(resource.getProperty("ublSchematronPath"));
-            
-            // PA API configuration
-            pSendToPA = resource.getProperty("sendToPA");
-            pPaApiBaseUrl = resource.getProperty("paApiBaseUrl");
-            pPaApiLoginEndpoint = resource.getProperty("paApiLoginEndpoint");
-            pPaApiUsername = resource.getProperty("paApiUsername");
-            pPaApiPassword = resource.getProperty("paApiPassword");
+            paApiBaseUrl = resource.getProperty("paApiBaseUrl");
+            paApiLoginEndpoint = resource.getProperty("paApiLoginEndpoint");
+            paApiUsername = resource.getProperty("paApiUsername");
+            paApiPassword = resource.getProperty("paApiPassword");
             String timeout = resource.getProperty("paApiTimeout");
-            pPaApiTimeout = (timeout != null) ? Integer.parseInt(timeout) : 30000;
+            paApiTimeout = (timeout != null) ? Integer.parseInt(timeout) : 30000;
+                            
+            useMock = resource.getProperty("paUseMock");
+            mockBehavior = resource.getProperty("paMockBehavior");
 
             // Création des répertoires
             FileUtils.forceMkdir(new File(pDirOutput));
@@ -453,14 +456,51 @@ public class ScheduleUBL {
                 if (paramType.equals("UBL") || paramType.equals("BOTH") || paramType.equals("UBL_VALIDATE")) {
                     ublValidator = new UBLValidator(pXsdPath, pSchematronPath);
                     
-                    // Initialize TokenManager if sending to PA is enabled (not for validation-only mode)
-                    if (!paramType.equals("UBL_VALIDATE") && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA))) {
-                        tokenManager = new TokenManager(pPaApiBaseUrl, pPaApiLoginEndpoint, 
-                                                        pPaApiUsername, pPaApiPassword, pPaApiTimeout);
-                        // Pre-fetch token to fail early if credentials are wrong
-                        String initialToken = tokenManager.getToken();
-                        if (initialToken == null) {
-                            throw new Exception("Failed to authenticate with PA API - check credentials");
+                    // Create shared TokenManager once for all tasks (real or mock)
+                    // This avoids creating thousands of tokens for thousands of tasks
+                    // Mock mode: Creates MockTokenManager to simulate token generation without PA connection
+                    // Real mode: Creates real TokenManager that connects to PA API
+                    if (!paramType.equals("UBL_VALIDATE")) {
+                        
+                        if ("Y".equalsIgnoreCase(useMock)) {
+                            // Mock mode: Create MockTokenManager to simulate authentication
+                            MockTokenManager.TokenBehavior behavior = MockTokenManager.TokenBehavior.ALWAYS_SUCCESS;
+                            if (mockBehavior != null) {
+                                try {
+                                    behavior = MockTokenManager.TokenBehavior.valueOf(mockBehavior.toUpperCase());
+                                } catch (IllegalArgumentException e) {
+                                    // Use default behavior
+                                }
+                            }
+                            tokenManager = new MockTokenManager(
+                                paApiBaseUrl,
+                                paApiLoginEndpoint,
+                                paApiUsername,
+                                paApiPassword,
+                                paApiTimeout,
+                                behavior
+                            );
+                            
+                            // Pre-fetch token to test authentication flow
+                            String initialToken = tokenManager.getToken();
+                            if (initialToken == null) {
+                                throw new Exception("Mock authentication failed - check mock behavior");
+                            }
+                        } else {
+                            // Real API mode: Create real TokenManager
+                            tokenManager = new TokenManager(
+                                paApiBaseUrl,
+                                paApiLoginEndpoint,
+                                paApiUsername,
+                                paApiPassword,
+                                paApiTimeout
+                            );
+                            
+                            // Pre-fetch token to fail early if credentials are wrong
+                            String initialToken = tokenManager.getToken();
+                            if (initialToken == null) {
+                                throw new Exception("Failed to authenticate with PA API - check credentials");
+                            }
                         }
                     }
                 }

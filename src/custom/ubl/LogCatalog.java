@@ -293,6 +293,15 @@ public class LogCatalog {
     /**
      * Generic log creators
      */
+    public static LogEntry generic(String level, String module, String submodule, String message) {
+        return LogEntry.builder()
+                .level(level)
+                .module(module)
+                .submodule(submodule)
+                .message(message)
+                .build();
+    }
+
     public static LogEntry info(String module, String submodule, String message) {
         return LogEntry.builder()
                 .level(LEVEL_INFO)
