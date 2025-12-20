@@ -30,6 +30,8 @@ import custom.ubl.CustomUBL;
 import custom.ubl.MockTokenManager;
 import custom.ubl.UBLValidator;
 import custom.ubl.TokenManager;
+import custom.ubl.RuntimeLogHandler;
+import custom.ubl.RuntimeLogCatalog;
 
 import static custom.resources.Tools.decodePasswd;
 import static custom.resources.Tools.encodePasswd;
@@ -229,8 +231,7 @@ public class ScheduleUBL {
 
     public static void updateUser(String configFile,String jobNumber,String jobName) throws Exception  {
         
-      
-            // register oracle driver
+        // register oracle driver
         try {
             File file = new File(configFile);
             Serializer serializer = new Persister();
@@ -274,77 +275,23 @@ public class ScheduleUBL {
     }
 
     /* Insert du suivi des traitements dans une table de LOG */
+    @Deprecated
     public static void insertLogSQL(String configFile,String paramTemplate, String paramFile, String paramType, String paramJobNumber,
             String Method, String Message) throws Exception  {
-        
-                         if (pUpdateDB.equals("Y")){
- 
-            // register oracle driver
-        try {
-            File file = new File(configFile);
-            Serializer serializer = new Persister();
-            Resources resources = serializer.read(Resources.class, file);
-            
-          
-            // Initialisation des variables globales du fichier de propriétés
-            Resource resource = resources.getResourceByName("global");
-            String pURL = resource.getProperty("URL");
-            String pSchema = resource.getProperty("schema");
-            String pDBUser = resource.getProperty("DBUser");
-            String pDBPassword = decodePasswd(resource.getProperty("DBPassword"));
-            String pTableErr = resource.getProperty("tableLog")+"_LOG";
-            
-            // connect to oracle and login
-            Class.forName("oracle.jdbc.OracleDriver");
-            Connection conn = DriverManager.getConnection(pURL,pDBUser,pDBPassword);
-        
-            String sql = "INSERT INTO "+ pSchema+"."+pTableErr+" (FEWDS1, FEUPMJ, FEUPMT, FEMODE, FETMPL, FEMETHOD, FEMESSAGE) VALUES (?,?,?,?,?,?,?)";
-            PreparedStatement stmt = conn.prepareStatement(sql);
-//            DateFormat sdf1 = new SimpleDateFormat("yyyy-MM-dd");
-            DateFormat sdf2 = new SimpleDateFormat("YYYYDDD");
-            DateFormat sdf3 = new SimpleDateFormat("HHmmss");
-            java.util.Date date = new java.util.Date();
-            stmt.setString(1,paramFile);
-            stmt.setInt(2,Integer.parseInt(sdf2.format(date))-1900000);
-            stmt.setInt(3,Integer.parseInt(sdf3.format(date)));
-            stmt.setString(4,paramType);
-            stmt.setString(5,paramTemplate);
-            stmt.setString(6,Method);
-            stmt.setString(7,Message);
-     
-            stmt.executeUpdate();
-            stmt.close();
-            conn.close();
+        // Deprecated - Use RuntimeLogHandler instead
+        RuntimeLogHandler logHandler = new RuntimeLogHandler(configFile, paramTemplate, paramFile, paramType, paramJobNumber);
+        RuntimeLogHandler.LogResult result = logHandler.insertLog(Method, Message);
+        if (result.hasError()) {
+            System.err.println("Runtime log error: " + result.getErrorMessage());
         }
-            catch (ClassNotFoundException | NumberFormatException | SQLException e)
-            {
-                e.printStackTrace();
-            }
-                         }
-        
     }
-    
-    /* Renvoi un libellé en fonction du code erreur */
-    private static String getMessage(){
-        String message = "SUCCESSFUL";
-        switch (errorCode){
-                case 0 :  message = "SUCCESSFUL";
-                        break;
-                case 1 :  message = "FATAL ERROR";
-                        break;
-                case 2 :  message = "NO DATA SELECTED";
-                        break;
-                default : message = "SUCCESSFUL";
-                        break;
-        }
-        return message;
-        
-    }
-   
+      
     /* Remise en forme des documents */
     public static void GenerateReport(String paramTemplate, String paramFile, String paramType, String paramJobNumber, 
             String paramConfig, boolean displayError) throws IOException, Exception{
         
+            // Create runtime log handler for this execution
+            RuntimeLogHandler logHandler = new RuntimeLogHandler(paramConfig, paramTemplate, paramFile, paramType, paramJobNumber);
     
             try {               
             
@@ -352,7 +299,10 @@ public class ScheduleUBL {
             Init(paramTemplate,paramConfig, paramFile);
             
             /* Log du début de traitement */
-            insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"START","SUCCESSFUL");
+            RuntimeLogHandler.LogResult logResult = logHandler.logStart();
+            if (logResult.hasError()) {
+                System.err.println("Failed to log START: " + logResult.getErrorMessage());
+            }
             
             /* Initialisation du fichier d'entrée */
             String inputXML = pDirInput + paramFile + ".xml";
@@ -367,8 +317,8 @@ public class ScheduleUBL {
                 TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML, pTransform);
                 
                 if (transformResult.hasError()) {
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                    logHandler.logError(RuntimeLogCatalog.METHOD_TRANSFORM_XSL, transformResult.getErrorMessage());
+                    logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                     System.exit(1);
                 }
                 inputXML = tempXML;
@@ -382,8 +332,8 @@ public class ScheduleUBL {
                 BIPTransformResult<ByteArrayOutputStream> rtfConversionResult = BIPublisher.convertRTFXSL(pRtfTemplate);
                 xslOutStream = rtfConversionResult.getData();
                 if (rtfConversionResult.hasError()) {
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"convertRTFXSL",rtfConversionResult.getErrorMessage());
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                    logHandler.logError(RuntimeLogCatalog.METHOD_CONVERT_RTF, rtfConversionResult.getErrorMessage());
+                    logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                     System.exit(1);               
                 }
             }
@@ -392,30 +342,30 @@ public class ScheduleUBL {
                  if (pDevMode.equals("Y")) {
                     TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML3,pDevXSL);
                     if (transformResult.hasError()) {
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                        logHandler.logError(RuntimeLogCatalog.METHOD_TRANSFORM_XSL, transformResult.getErrorMessage());
+                        logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                         System.exit(1);
                     }
                  }
                  else {
                     TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML2,pRoutage);
                     if (transformResult.hasError()) {
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                        logHandler.logError(RuntimeLogCatalog.METHOD_TRANSFORM_XSL, transformResult.getErrorMessage());
+                        logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                         System.exit(1);
                     }
                     TransformResult<Void> transformResultCopy = Tranform.transformXSLToXML(tempXML2,tempXML3,pCopy);
                     if (transformResultCopy.hasError()) {
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResultCopy.getErrorMessage());
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                        logHandler.logError(RuntimeLogCatalog.METHOD_TRANSFORM_XSL, transformResultCopy.getErrorMessage());
+                        logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                         System.exit(1);
                     }
                  }
                  
                 runSingle(tempXML3 ,xslOutStream, paramFile + ".pdf");
                  if (errorCode.equals(1)) {
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"runSingle",errorMessage);
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                    logHandler.logError(RuntimeLogCatalog.METHOD_RUN_SINGLE, errorMessage);
+                    logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                     System.exit(1);
                  }
                
@@ -425,8 +375,7 @@ public class ScheduleUBL {
                 // Vérification si le fichier n'est pas vide
                 if (!FileUtils.readFileToString(new File(tempXML3),"UTF-8").contains("ID_DU_DOCUMENT"))
                     if (pUpdateDB.equals("Y")){
-                        //updateUser(paramJobNumber,paramFile);
-                        errorCode = 2;
+                        logHandler.logEnd(RuntimeLogCatalog.STATUS_NO_DATA);
                     }
                  
             } else {
@@ -436,8 +385,8 @@ public class ScheduleUBL {
                 if (pDevMode.equals("Y")) {
                     TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML2,pDevXSL);
                     if (transformResult.hasError()) {
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"transformXSLToXML",transformResult.getErrorMessage());
-                        insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                        logHandler.logError(RuntimeLogCatalog.METHOD_TRANSFORM_XSL, transformResult.getErrorMessage());
+                        logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                         System.exit(1);
                     }
                     doc = builder.parse("file:" + tempXML2);
@@ -522,8 +471,8 @@ public class ScheduleUBL {
                 ExecutorService execute = Executors.newFixedThreadPool(processorCount);
                 runTasks(execute, tasks);
                 if (errorCode.equals(1)) {
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"runTasks",errorMessage);
-                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                    logHandler.logError(RuntimeLogCatalog.METHOD_RUN_TASKS, errorMessage);
+                    logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR);
                     System.exit(1);
                  }
                // Copie des fichiers dans le répertoire d'envoi
@@ -531,14 +480,14 @@ public class ScheduleUBL {
                 
 
              }
-                  // Suppression fichier input
+            // Suppression fichier input
             FileUtils.forceDelete(new File(pDirInput + paramFile + ".xml"));
-            insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+            logHandler.logEnd(RuntimeLogCatalog.STATUS_SUCCESSFUL);
      
             
         } catch (IOException | NumberFormatException | ParserConfigurationException | SAXException e)
         {
-           insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",e.getMessage());
+           logHandler.logEnd(RuntimeLogCatalog.STATUS_FATAL_ERROR + ": " + e.getMessage());
            System.exit(1);
         } finally {
             // Suppression répertoire temporaire
