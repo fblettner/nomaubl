@@ -83,6 +83,7 @@ public class ScheduleUBL {
                         
     private static String useMock;
     private static String mockBehavior;
+    private static String pAttachment;
     
     /* Remplacement des variables dans les emplacements de fichier */
     private static String replaceConstValue (String inputStr) {
@@ -132,7 +133,7 @@ public class ScheduleUBL {
                             
             useMock = resource.getProperty("paUseMock");
             mockBehavior = resource.getProperty("paMockBehavior");
-
+ 
             // Création des répertoires
             FileUtils.forceMkdir(new File(pDirOutput));
             FileUtils.forceMkdir(new File(pTempOutput));
@@ -144,6 +145,8 @@ public class ScheduleUBL {
             pTransform = replaceConstValue(resource.getProperty("transform"));
             pTransformYN = resource.getProperty("transformYN");
             pNumProc = resource.getProperty("numProc");
+            pAttachment = resource.getProperty("attachment");
+
         }
         catch (Exception e)
         {
@@ -371,12 +374,18 @@ public class ScheduleUBL {
                 inputXML = tempXML;
             }
             
-            BIPTransformResult<ByteArrayOutputStream> rtfConversionResult = BIPublisher.convertRTFXSL(pRtfTemplate);
-            ByteArrayOutputStream xslOutStream = rtfConversionResult.getData();
-            if (rtfConversionResult.hasError()) {
-                insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"convertRTFXSL",rtfConversionResult.getErrorMessage());
-                insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
-                System.exit(1);               
+            ByteArrayOutputStream xslOutStream = null;
+            
+            // Conversion RTF uniquement si nécessaire pour BURST, BOTH ou création d'attachments
+            if (paramType.equals("BURST") || paramType.equals("BOTH" ) || paramType.equals("SINGLE")
+                    || (pAttachment != null && pAttachment.equals("create"))) {
+                BIPTransformResult<ByteArrayOutputStream> rtfConversionResult = BIPublisher.convertRTFXSL(pRtfTemplate);
+                xslOutStream = rtfConversionResult.getData();
+                if (rtfConversionResult.hasError()) {
+                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"convertRTFXSL",rtfConversionResult.getErrorMessage());
+                    insertLogSQL(paramConfig,paramTemplate,paramFile,paramType,paramJobNumber,"END",getMessage());
+                    System.exit(1);               
+                }
             }
                        
             if (paramType.equals("SINGLE")) {
@@ -540,6 +549,45 @@ public class ScheduleUBL {
     }
     
     
+    /* Affiche l'aide de l'application */
+    private static void displayHelp() {
+        System.out.println("=================================================================");
+        System.out.println("NomaUBL - UBL Document Processing Application");
+        System.out.println("=================================================================");
+        System.out.println("\nUsage: java -jar nomaubl.jar [MODE] [PARAMETERS]\n");
+        System.out.println("Available modes:\n");
+        System.out.println("  -help, --help, -h");
+        System.out.println("      Display this help message\n");
+        System.out.println("  -config <configFile>");
+        System.out.println("      Open the graphical user interface");
+        System.out.println("      Parameters:");
+        System.out.println("        configFile: Path to the configuration file\n");
+        System.out.println("  -run <configFile> <template> <fileName> <type> <jobNumber>");
+        System.out.println("      Execute document processing in command line mode");
+        System.out.println("      Parameters:");
+        System.out.println("        configFile: Path to the configuration file");
+        System.out.println("        template:   Template name to use");
+        System.out.println("        fileName:   Input file name (without extension)");
+        System.out.println("        type:       Processing type (SINGLE, BURST, UBL, BOTH, UBL_VALIDATE)");
+        System.out.println("        jobNumber:  Job number for tracking\n");
+        System.out.println("  -password <password>");
+        System.out.println("      Encode a password for storage in configuration");
+        System.out.println("      Parameters:");
+        System.out.println("        password: The password to encode\n");
+        System.out.println("  -updUser <configFile> <jobNumber> <fileName>");
+        System.out.println("      Update E1 user in submitted jobs");
+        System.out.println("      Parameters:");
+        System.out.println("        configFile: Path to the configuration file");
+        System.out.println("        jobNumber:  Job number to update");
+        System.out.println("        fileName:   File name associated with the job\n");
+        System.out.println("Examples:");
+        System.out.println("  java -jar nomaubl.jar -help");
+        System.out.println("  java -jar nomaubl.jar -config ./config/config.properties");
+        System.out.println("  java -jar nomaubl.jar -run ./config/config.properties invoice doc_123 SINGLE 1");
+        System.out.println("  java -jar nomaubl.jar -password mySecretPass");
+        System.out.println("=================================================================");
+    }
+    
     /* Fonction principale de l'application 
         Mode config = ouverture de l'application graphique
         Mode run = exécution en ligne de commande
@@ -547,6 +595,11 @@ public class ScheduleUBL {
         Mode updUser = mise à jour de l'utilisateur E1 dans les travaux soumis
     */
     public static void main(String[] args) throws Exception{
+        
+        if (args.length == 0 || args[0].equals("-help") || args[0].equals("--help") || args[0].equals("-h")) {
+            displayHelp();
+            System.exit(0);
+        }
                
         String paramMode = args[0];
         String paramConfig = args[1];
