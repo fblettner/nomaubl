@@ -197,7 +197,7 @@ public class UBLDatabaseHandler {
         String sql = "INSERT INTO " + schema + ".F564231 (" +
                 "UHDOC, UHDCT, UHKCO, UHODOC, UHODCT, UHOKCO, UHK74FLEN, UHK74XMLV, UHK74LDDJ, UHDDJ, UHK74LEDT, " +
                 "UHATXA, UHSTAM, UHAG, UHAAP, UHCRCD, UHK74MSG2, UH55RSF, UHY74CTID, UHAN8, UHALKY, UHTXFT, " +
-                "UHK74RSCD, UHK74MSG1, UHRMK, UHSBA1, UHY56PYIN, UHUSER, UHPID, UHJOBN, UHUPMJ, UHTDAY" +
+                "UHK74RSCD, UHK74MSG1, UHY56EPID, UHY56EPSC, UHY56PYIN, UHUSER, UHPID, UHJOBN, UHUPMJ, UHTDAY" +
                 ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -277,10 +277,10 @@ public class UBLDatabaseHandler {
             
             // Customer Endpoint (BT-49, BT-49-1)
             String endpointID = getXPathValue(ublDoc, "//cac:AccountingCustomerParty/cac:Party/cbc:EndpointID");
-            setStringOrBlank(stmt, 25, endpointID);                                        // RMK (BT-49)
+            setStringOrBlank(stmt, 25, endpointID);                                        // Y56EPID (BT-49)
             
             String endpointScheme = getXPathValue(ublDoc, "//cac:AccountingCustomerParty/cac:Party/cbc:EndpointID/@schemeID");
-            stmt.setString(26, endpointScheme);                                            // SBA1 (BT-49-1)
+            stmt.setString(26, endpointScheme);                                            // Y56EPSC (BT-49-1)
             
             // Payment means (BT-81)
             String paymentMeansCode = getXPathValue(ublDoc, "//cac:PaymentMeans/cbc:PaymentMeansCode");

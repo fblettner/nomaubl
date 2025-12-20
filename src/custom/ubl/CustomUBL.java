@@ -92,6 +92,51 @@ public class CustomUBL implements Callable<Integer> {
     }
 
     /**
+     * Handle validation failure - log errors/warnings and potentially send to PA in
+     * force mode
+     */
+    private void handleValidationFailure(ValidationResult validResult, String docName, String ublFile,
+            UBLDatabaseHandler dbHandler, Connection conn) {
+        // Display all errors/warnings
+        for (ValidationError e : validResult.getErrors()) {
+            String ruleId = e.getRuleId() != null ? e.getRuleId() : "UNDEFINED";
+            log(LogCatalog.generic(e.getSeverity(), e.getSource(), ruleId, e.getMessage()));
+        }
+
+        // Update status to VALIDATED (with warnings)
+        updateStatus(InvoiceStatusCatalog.validatedWithWarnings(), dbHandler, conn);
+
+        // Check if only warnings (no errors)
+        boolean hasOnlyWarnings = validResult.getErrors().stream()
+                .allMatch(err -> "WARNING".equalsIgnoreCase(err.getSeverity()));
+
+        // Send to PA if F (force) mode and only warnings (not in validation-only mode)
+        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA) && hasOnlyWarnings) {
+            log(LogCatalog.ublForceSendToPA(docName));
+            sendToPlatformAPI(ublFile, docName, dbHandler, conn);
+        }
+    }
+
+    /**
+     * Handle validation success - log success and send to PA if enabled
+     */
+    private void handleValidationSuccess(String typePiece, String docName, String ublFile,
+            UBLDatabaseHandler dbHandler, Connection conn) {
+        log(LogCatalog.ublValidationSuccess(typePiece, docName));
+
+        // Update status to VALIDATED
+        updateStatus(InvoiceStatusCatalog.validated(), dbHandler, conn);
+
+        // Send to PA if enabled (Y or F mode) - not in validation-only mode
+        boolean shouldSendToPA = !pParamType.equals("UBL_VALIDATE")
+                && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA));
+
+        if (shouldSendToPA) {
+            sendToPlatformAPI(ublFile, docName, dbHandler, conn);
+        }
+    }
+
+    /**
      * Helper method to send document to Platform API and handle status updates
      */
     private void sendToPlatformAPI(String ublFile, String docName, UBLDatabaseHandler dbHandler, Connection conn) {
@@ -396,49 +441,6 @@ public class CustomUBL implements Callable<Integer> {
         return 0;
     }
 
-    /**
-     * Handle validation failure - log errors/warnings and potentially send to PA in
-     * force mode
-     */
-    private void handleValidationFailure(ValidationResult validResult, String docName, String ublFile,
-            UBLDatabaseHandler dbHandler, Connection conn) {
-        // Display all errors/warnings
-        for (ValidationError e : validResult.getErrors()) {
-            String ruleId = e.getRuleId() != null ? e.getRuleId() : "UNDEFINED";
-            log(LogCatalog.generic(e.getSeverity(), e.getSource(), ruleId, e.getMessage()));
-        }
 
-        // Update status to VALIDATED (with warnings)
-        updateStatus(InvoiceStatusCatalog.validatedWithWarnings(), dbHandler, conn);
-
-        // Check if only warnings (no errors)
-        boolean hasOnlyWarnings = validResult.getErrors().stream()
-                .allMatch(err -> "WARNING".equalsIgnoreCase(err.getSeverity()));
-
-        // Send to PA if F (force) mode and only warnings (not in validation-only mode)
-        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA) && hasOnlyWarnings) {
-            log(LogCatalog.ublForceSendToPA(docName));
-            sendToPlatformAPI(ublFile, docName, dbHandler, conn);
-        }
-    }
-
-    /**
-     * Handle validation success - log success and send to PA if enabled
-     */
-    private void handleValidationSuccess(String typePiece, String docName, String ublFile,
-            UBLDatabaseHandler dbHandler, Connection conn) {
-        log(LogCatalog.ublValidationSuccess(typePiece, docName));
-
-        // Update status to VALIDATED
-        updateStatus(InvoiceStatusCatalog.validated(), dbHandler, conn);
-
-        // Send to PA if enabled (Y or F mode) - not in validation-only mode
-        boolean shouldSendToPA = !pParamType.equals("UBL_VALIDATE")
-                && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA));
-
-        if (shouldSendToPA) {
-            sendToPlatformAPI(ublFile, docName, dbHandler, conn);
-        }
-    }
 
 }
