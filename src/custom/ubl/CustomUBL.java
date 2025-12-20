@@ -30,7 +30,7 @@ public class CustomUBL implements Callable<Integer> {
     private String pSetLocale;
     private String pProcessHome;
     private final String pTemplate;
-    private final String pParamType;
+    private final ProcessingType pParamType;
     private final String pFileName;
     private final String configFile;
     private String pdoc;
@@ -111,7 +111,7 @@ public class CustomUBL implements Callable<Integer> {
                 .allMatch(err -> "WARNING".equalsIgnoreCase(err.getSeverity()));
 
         // Send to PA if F (force) mode and only warnings (not in validation-only mode)
-        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA) && hasOnlyWarnings) {
+        if (pParamType.shouldSendToPA() && "F".equalsIgnoreCase(pSendToPA) && hasOnlyWarnings) {
             log(LogCatalog.ublForceSendToPA(docName));
             sendToPlatformAPI(ublFile, docName, dbHandler, conn);
         }
@@ -128,7 +128,7 @@ public class CustomUBL implements Callable<Integer> {
         updateStatus(InvoiceStatusCatalog.validated(), dbHandler, conn);
 
         // Send to PA if enabled (Y or F mode) - not in validation-only mode
-        boolean shouldSendToPA = !pParamType.equals("UBL_VALIDATE")
+        boolean shouldSendToPA = pParamType.shouldSendToPA()
                 && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA));
 
         if (shouldSendToPA) {
@@ -170,7 +170,7 @@ public class CustomUBL implements Callable<Integer> {
 
     // Déclaration des variables
     public CustomUBL(int startI, int endI, NodeList inputNode, ByteArrayOutputStream baos, String inTmpl,
-            String inFileName, String inConfig, String inParamType, UBLValidator inUBLValidator,
+            String inFileName, String inConfig, ProcessingType inParamType, UBLValidator inUBLValidator,
             TokenManager inTokenManager, boolean inDisplayError) {
         displayError = inDisplayError || (pUpdateDB != null && pUpdateDB.equalsIgnoreCase("N"));
         startInvoice = startI;
@@ -321,7 +321,7 @@ public class CustomUBL implements Callable<Integer> {
                             aTransformer.transform(src, outputTarget);
                             is = new ByteArrayInputStream(outputStream.toByteArray());
 
-                            if (pParamType.equals("BURST") || pParamType.equals("BOTH")
+                            if (pParamType.involvesPDF()
                                     || (pAttachment != null && pAttachment.equals("create"))) {
                                 // Recreate InputStream for PDF generation (consumed by UBL in BOTH mode)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
@@ -356,8 +356,7 @@ public class CustomUBL implements Callable<Integer> {
 
                             }
 
-                            if (pParamType.equals("UBL") || pParamType.equals("BOTH")
-                                    || pParamType.equals("UBL_VALIDATE")) {
+                            if (pParamType.involvesUBL()) {
                                 // Recreate InputStream for UBL conversion (may have been consumed by PDF/XML
                                 // generation)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
@@ -371,7 +370,7 @@ public class CustomUBL implements Callable<Integer> {
                                     }
                                 } else {
                                     // Add PDF attachment if required (not in validation-only mode)
-                                    if (!pParamType.equals("UBL_VALIDATE") && pAttachment != null
+                                    if (pParamType.shouldSendToPA() && pAttachment != null
                                             && (pAttachment.equals("create") || pAttachment.equals("attach"))) {
                                         String pdfFile = pDirInput + docName + ".pdf";
                                         if (pAttachment.equals("create"))

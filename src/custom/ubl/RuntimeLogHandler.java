@@ -23,7 +23,7 @@ public class RuntimeLogHandler {
     private final String configFile;
     private final String paramTemplate;
     private final String paramFile;
-    private final String paramType;
+    private final ProcessingType paramType;
     private final SimpleDateFormat jdeDateFormat = new SimpleDateFormat("yyyyDDD");
     private final SimpleDateFormat jdeTimeFormat = new SimpleDateFormat("HHmmss");
     
@@ -43,7 +43,7 @@ public class RuntimeLogHandler {
      * @param paramType Processing type (SINGLE, BURST, UBL, BOTH, UBL_VALIDATE)
      */
     public RuntimeLogHandler(String configFile, String paramTemplate, String paramFile, 
-                           String paramType) {
+                           ProcessingType paramType) {
         this.configFile = configFile;
         this.paramTemplate = paramTemplate;
         this.paramFile = paramFile;
@@ -126,7 +126,7 @@ public class RuntimeLogHandler {
             stmt.setString(1, paramFile);
             stmt.setInt(2, getCurrentJDEDate());
             stmt.setInt(3, getCurrentJDETime());
-            stmt.setString(4, paramType);
+            stmt.setString(4, paramType.getValue());
             stmt.setString(5, paramTemplate);
             stmt.setString(6, truncate(method, 100));      // Truncate to avoid DB errors
             stmt.setString(7, truncate(message, 500));     // Truncate to avoid DB errors

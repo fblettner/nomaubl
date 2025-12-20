@@ -13,6 +13,7 @@ import com.jcraft.jsch.Session;
 import custom.resources.Resource;
 import custom.resources.Resources;
 import custom.resources.Template;
+import custom.ubl.ProcessingType;
 import custom.ubl.UBLValidator;
 import custom.ubl.ValidationError;
 import custom.ubl.ValidationResult;
@@ -202,7 +203,8 @@ public class MainModern extends JFrame {
             "SINGLE - Single document processing",
             "BURST - Multiple documents burst processing",
             "UBL - UBL XML only generation",
-            "BOTH - UBL XML + PDF + XML generation"
+            "BOTH - UBL XML + PDF + XML generation",
+            "UBL_VALIDATE - UBL validation without Platform API"
         });
         cbMode.setPreferredSize(new Dimension(350, 30));
         cbMode.setToolTipText("Select processing mode");
@@ -791,13 +793,15 @@ public class MainModern extends JFrame {
                 }
                 
                 // Extract mode (before " - ")
-                String mode = cbMode.getSelectedItem().toString();
-                if (mode.contains(" - ")) {
-                    mode = mode.substring(0, mode.indexOf(" - "));
+                String modeStr = cbMode.getSelectedItem().toString();
+                if (modeStr.contains(" - ")) {
+                    modeStr = modeStr.substring(0, modeStr.indexOf(" - "));
                 }
                 
+                ProcessingType mode = ProcessingType.fromString(modeStr);
+                
                 // Capture output for UBL/BOTH modes
-                if (mode.equals("UBL") || mode.equals("BOTH") || mode.equals("BURST")) {
+                if (mode.involvesUBL() || mode == ProcessingType.BURST) {
                     java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                     java.io.PrintStream ps = new java.io.PrintStream(baos);
                     java.io.PrintStream oldOut = System.out;
@@ -829,12 +833,14 @@ public class MainModern extends JFrame {
                     String result = get();
                     
                     // Extract mode to check if we should parse validation results
-                    String mode = cbMode.getSelectedItem().toString();
-                    if (mode.contains(" - ")) {
-                        mode = mode.substring(0, mode.indexOf(" - "));
+                    String modeStr = cbMode.getSelectedItem().toString();
+                    if (modeStr.contains(" - ")) {
+                        modeStr = modeStr.substring(0, modeStr.indexOf(" - "));
                     }
                     
-                    if (mode.equals("UBL") || mode.equals("BOTH") || mode.equals("BURST")) {
+                    ProcessingType mode = ProcessingType.fromString(modeStr);
+                    
+                    if (mode.involvesUBL() || mode == ProcessingType.BURST) {
                         // Parse and display validation results
                         tableModelGenerateResults.setRowCount(0);
                         
@@ -1010,7 +1016,7 @@ public class MainModern extends JFrame {
                 
                 // Run validation with UBL_VALIDATE mode (validation only, no PA sending)
                 try {
-                    GenerateReport(templateName, fileName, "UBL_VALIDATE", "1", paramConfig, true);
+                    GenerateReport(templateName, fileName, ProcessingType.UBL_VALIDATE, "1", paramConfig, true);
                     System.out.flush();
                     System.err.flush();
                     System.setOut(oldOut);

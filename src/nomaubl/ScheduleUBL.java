@@ -32,11 +32,11 @@ import custom.ubl.UBLValidator;
 import custom.ubl.TokenManager;
 import custom.ubl.RuntimeLogHandler;
 import custom.ubl.RuntimeLogCatalog;
+import custom.ubl.JDEUserUpdater;
+import custom.ubl.ProcessingType;
 
-import static custom.resources.Tools.decodePasswd;
 import static custom.resources.Tools.encodePasswd;
 import org.apache.commons.io.FileUtils;
-import java.sql.*;
 import javax.xml.parsers.ParserConfigurationException;
 import oracle.xdo.XDOException;
 import org.xml.sax.SAXException;
@@ -227,54 +227,22 @@ public class ScheduleUBL {
     }
 
 
-    public static void updateUser(String configFile,String jobNumber,String jobName) throws Exception  {
-        
-        // register oracle driver
-        try {
-            File file = new File(configFile);
-            Serializer serializer = new Persister();
-            Resources resources = serializer.read(Resources.class, file);
-            
-          
-            // Initialisation des variables globales du fichier de propriétés
-            Resource resource = resources.getResourceByName("global");
-            String pURL = resource.getProperty("URL");
-            String pSchemaSVM = resource.getProperty("schemaSVM");
-            String pDBUser = resource.getProperty("DBUser");
-            String pDBPasswd = decodePasswd(resource.getProperty("DBPassword"));
-
-            
-            Class.forName("oracle.jdbc.OracleDriver");
-        
-            // connect to oracle and login
-            Connection conn = DriverManager.getConnection(pURL,pDBUser,pDBPasswd);
-        
-            // update to retrieve batch from PrintQueue
-            String sql = "update "+pSchemaSVM+".F986110 SET JCUSER='EXPLOIT' WHERE JCJOBNBR=?";
-            PreparedStatement stmt = conn.prepareStatement(sql);
-            stmt.setInt(1,Integer.parseInt(jobNumber));
-            stmt.executeUpdate();
-            stmt.close();
-
-            String sql2 = "update "+pSchemaSVM+".F986110 SET JCUSER='EXPLOIT' WHERE JCJOBNBR=?";
-            PreparedStatement stmt2 = conn.prepareStatement(sql2);
-            String[] parts =jobName.split("_");        
-            stmt2.setInt(1,Integer.parseInt(parts[2]));
-
-            stmt2.executeUpdate();
-            stmt2.close();
-            conn.close();
+    /**
+     * Update JDE user in submitted jobs
+     * @deprecated Use JDEUserUpdater class instead
+     */
+    @Deprecated
+    public static void updateUser(String configFile, String jobNumber, String jobName) throws Exception {
+        JDEUserUpdater updater = new JDEUserUpdater(configFile);
+        JDEUserUpdater.UpdateResult result = updater.updateUser(jobNumber, jobName);
+        if (result.hasError()) {
+            System.err.println("Failed to update user: " + result.getErrorMessage());
         }
-            catch (ClassNotFoundException | NumberFormatException | SQLException e)
-            {
-                e.printStackTrace();
-            }
-        
     }
 
     /* Insert du suivi des traitements dans une table de LOG */
     @Deprecated
-    public static void insertLogSQL(String configFile,String paramTemplate, String paramFile, String paramType, String paramJobNumber,
+    public static void insertLogSQL(String configFile,String paramTemplate, String paramFile, ProcessingType paramType, String paramJobNumber,
             String Method, String Message) throws Exception  {
         // Deprecated - Use RuntimeLogHandler instead
         RuntimeLogHandler logHandler = new RuntimeLogHandler(configFile, paramTemplate, paramFile, paramType);
@@ -285,7 +253,7 @@ public class ScheduleUBL {
     }
       
     /* Remise en forme des documents */
-    public static void GenerateReport(String paramTemplate, String paramFile, String paramType, String paramJobNumber, 
+    public static void GenerateReport(String paramTemplate, String paramFile, ProcessingType paramType, String paramJobNumber, 
             String paramConfig, boolean displayError) throws IOException, Exception{
         
             // Create runtime log handler for this execution
@@ -325,8 +293,7 @@ public class ScheduleUBL {
             ByteArrayOutputStream xslOutStream = null;
             
             // Conversion RTF uniquement si nécessaire pour BURST, BOTH ou création d'attachments
-            if (paramType.equals("BURST") || paramType.equals("BOTH" ) || paramType.equals("SINGLE")
-                    || (pAttachment != null && pAttachment.equals("create"))) {
+            if (paramType.involvesPDF() || (pAttachment != null && pAttachment.equals("create"))) {
                 BIPTransformResult<ByteArrayOutputStream> rtfConversionResult = BIPublisher.convertRTFXSL(pRtfTemplate);
                 xslOutStream = rtfConversionResult.getData();
                 if (rtfConversionResult.hasError()) {
@@ -336,7 +303,7 @@ public class ScheduleUBL {
                 }
             }
                        
-            if (paramType.equals("SINGLE")) {
+            if (paramType == ProcessingType.SINGLE) {
                  if (pDevMode.equals("Y")) {
                     TransformResult<Void> transformResult = Tranform.transformXSLToXML(inputXML,tempXML3,pDevXSL);
                     if (transformResult.hasError()) {
@@ -409,14 +376,14 @@ public class ScheduleUBL {
                 UBLValidator ublValidator = null;
                 TokenManager tokenManager = null;
 
-                if (paramType.equals("UBL") || paramType.equals("BOTH") || paramType.equals("UBL_VALIDATE")) {
+                if (paramType.involvesUBL()) {
                     ublValidator = new UBLValidator(pXsdPath, pSchematronPath);
                     
                     // Create shared TokenManager once for all tasks (real or mock)
                     // This avoids creating thousands of tokens for thousands of tasks
                     // Mock mode: Creates MockTokenManager to simulate token generation without PA connection
                     // Real mode: Creates real TokenManager that connects to PA API
-                    if (!paramType.equals("UBL_VALIDATE")) {
+                    if (paramType.shouldSendToPA()) {
                         
                         if ("Y".equalsIgnoreCase(useMock)) {
                             // Mock mode: Create MockTokenManager to simulate authentication
@@ -560,8 +527,18 @@ public class ScheduleUBL {
         if (paramMode.equals("-run")) {
             String paramTemplate = args[2];
             String paramFile = args[3];
-            String paramType = args[4];
+            String paramTypeString = args[4];
             String paramJobNumber = args[5];
+            
+            // Parse processing type from string
+            ProcessingType paramType;
+            try {
+                paramType = ProcessingType.fromString(paramTypeString);
+            } catch (IllegalArgumentException e) {
+                System.err.println("Error: " + e.getMessage());
+                System.exit(1);
+                return;
+            }
       
             // Init(paramTemplate,paramConfig, paramFile);
             GenerateReport(paramTemplate,paramFile,paramType,paramJobNumber,paramConfig, false);
