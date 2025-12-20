@@ -399,6 +399,10 @@
                         select="$defaultCurrency" />
 
                     <!-- BG-23: VAT breakdown -->
+                    <!-- BT-116: VAT category taxable amount -->
+                    <!-- BT-117: VAT category tax amount -->
+                    <!-- BT-118: VAT category code -->
+                    <!-- BT-119: VAT category rate -->
                     <xsl:call-template
                         name="ubl:tax-subtotal">
                         <xsl:with-param name="taxableAmount" select="$taxableLineAmount" />
@@ -424,6 +428,10 @@
                 select="$defaultCurrency" />
 
             <!-- BG-22: Document totals -->
+            <!-- BT-106: Sum of Invoice line net amount -->
+            <!-- BT-109: Invoice total amount without VAT -->
+            <!-- BT-112: Invoice total amount with VAT -->
+            <!-- BT-115: Amount due for payment -->
             <xsl:call-template
                 name="ubl:legal-monetary-total">
                 <xsl:with-param name="totalWithoutVAT" select="$totalWithoutVAT" />
@@ -515,6 +523,7 @@
                         </xsl:call-template>
 
                         <!-- BT-151: Invoiced item VAT category code -->
+                        <!-- BT-152: Invoiced item VAT rate -->
                         <xsl:call-template name="ubl:classified-tax-category">
                             <xsl:with-param name="id" select="$itemTaxType" />
                             <xsl:with-param name="percent" select="$itemTaxAmount" />
@@ -544,6 +553,10 @@
 
                      <!-- PriceAmount: only if non-empty -->
                     <!-- BG-29: Price details -->
+                    <!-- BT-146: Item net price -->
+                    <!-- BT-149: Item price base quantity -->
+                    <!-- BT-147: Item price discount (amount) -->
+                    <!-- BT-148: Item gross price -->
                     <xsl:call-template name="ubl:line-price">
                         <xsl:with-param name="unitPrice" select="$unitPrice" />
                         <xsl:with-param name="unitCode" select="$unitCode" />

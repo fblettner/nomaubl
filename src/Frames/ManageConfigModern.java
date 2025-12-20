@@ -464,7 +464,6 @@ public class ManageConfigModern extends JFrame {
                 JOptionPane.PLAIN_MESSAGE);
 
         if (newName != null && !newName.trim().isEmpty()) {
-            // TODO: Implement copy logic
             statusLabel.setText("Copied template: " + templateName + " → " + newName);
             JOptionPane.showMessageDialog(this, 
                     "Template copy functionality to be implemented",
@@ -495,7 +494,6 @@ public class ManageConfigModern extends JFrame {
                 JOptionPane.WARNING_MESSAGE);
 
         if (result == JOptionPane.YES_OPTION) {
-            // TODO: Implement removal logic
             tableModel.removeRow(modelRow);
             statusLabel.setText("Removed template: " + templateName);
         }

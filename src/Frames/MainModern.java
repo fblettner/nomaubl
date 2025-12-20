@@ -247,8 +247,8 @@ public class MainModern extends JFrame {
                 
                 if (value != null) {
                     String text = value.toString();
-                    setText("<html><div style='width: " + (table.getColumnModel().getColumn(column).getWidth() - 10) + "px;'>" 
-                        + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>") 
+                    setText("<html><div style='width: " + (table.getColumnModel().getColumn(column).getWidth() - 10) + "px; word-wrap: break-word; overflow-wrap: break-word;'>" 
+                        + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("{", "&#123;").replace("}", "&#125;").replace("'", "&#39;").replace("\n", "<br>") 
                         + "</div></html>");
                 }
                 
@@ -380,8 +380,11 @@ public class MainModern extends JFrame {
                 text = text.replace("&", "&amp;")
                           .replace("<", "&lt;")
                           .replace(">", "&gt;")
+                          .replace("{", "&#123;")
+                          .replace("}", "&#125;")
+                          .replace("'", "&#39;")
                           .replace("\n", "<br>");
-                text = "<html><div style='width: " + (table.getColumnModel().getColumn(column).getWidth() - 10) + "px;'>" 
+                text = "<html><div style='width: " + (table.getColumnModel().getColumn(column).getWidth() - 10) + "px; word-wrap: break-word; overflow-wrap: break-word;'>" 
                        + text + "</div></html>";
                 
                 Component c = super.getTableCellRendererComponent(table, text, isSelected, hasFocus, row, column);
@@ -794,23 +797,28 @@ public class MainModern extends JFrame {
                 }
                 
                 // Capture output for UBL/BOTH modes
-                if (mode.equals("UBL") || mode.equals("BOTH")) {
+                if (mode.equals("UBL") || mode.equals("BOTH") || mode.equals("BURST")) {
                     java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                     java.io.PrintStream ps = new java.io.PrintStream(baos);
                     java.io.PrintStream oldOut = System.out;
+                    java.io.PrintStream oldErr = System.err;
                     System.setOut(ps);
+                    System.setErr(ps);
                     
                     try {
-                        GenerateReport(template, paramFile, mode, "1", paramConfig);
+                        GenerateReport(template, paramFile, mode, "1", paramConfig, true);
                         System.out.flush();
+                        System.err.flush();
                         System.setOut(oldOut);
+                        System.setErr(oldErr);
                         return baos.toString();
                     } catch (Exception e) {
                         System.setOut(oldOut);
+                        System.setErr(oldErr);
                         return "ERROR:" + e.getMessage() + "\n" + baos.toString();
                     }
                 } else {
-                    GenerateReport(template, paramFile, mode, "1", paramConfig);
+                    GenerateReport(template, paramFile, mode, "1", paramConfig, true);
                     return "SUCCESS";
                 }
             }
@@ -826,7 +834,7 @@ public class MainModern extends JFrame {
                         mode = mode.substring(0, mode.indexOf(" - "));
                     }
                     
-                    if (mode.equals("UBL") || mode.equals("BOTH")) {
+                    if (mode.equals("UBL") || mode.equals("BOTH") || mode.equals("BURST")) {
                         // Parse and display validation results
                         tableModelGenerateResults.setRowCount(0);
                         
@@ -992,21 +1000,26 @@ public class MainModern extends JFrame {
                 File destFile = new File(inputDir, fileName + ".xml");
                 FileUtils.copyFile(fileInput, destFile);
                 
-                // Capture System.out for validation messages
+                // Capture System.out and System.err for validation messages
                 java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                 java.io.PrintStream ps = new java.io.PrintStream(baos);
                 java.io.PrintStream oldOut = System.out;
+                java.io.PrintStream oldErr = System.err;
                 System.setOut(ps);
+                System.setErr(ps);
                 
                 // Run validation with UBL_VALIDATE mode (validation only, no PA sending)
                 try {
-                    GenerateReport(templateName, fileName, "UBL_VALIDATE", "1", paramConfig);
+                    GenerateReport(templateName, fileName, "UBL_VALIDATE", "1", paramConfig, true);
                     System.out.flush();
+                    System.err.flush();
                     System.setOut(oldOut);
+                    System.setErr(oldErr);
                     String output = baos.toString();
                     return output;
                 } catch (Exception e) {
                     System.setOut(oldOut);
+                    System.setErr(oldErr);
                     String output = baos.toString();
                     return "ERROR:" + e.getMessage() + "\n" + output;
                 }

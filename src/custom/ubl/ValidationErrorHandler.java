@@ -14,7 +14,6 @@ public class ValidationErrorHandler implements org.xml.sax.ErrorHandler {
             "XSD",
             "warning",
             e.getMessage(),
-            "Line " + e.getLineNumber() + ", Column " + e.getColumnNumber(),
             null
         ));
     }
@@ -25,7 +24,6 @@ public class ValidationErrorHandler implements org.xml.sax.ErrorHandler {
             "XSD",
             "error",
             e.getMessage(),
-            "Line " + e.getLineNumber() + ", Column " + e.getColumnNumber(),
             null
         ));
     }
@@ -36,7 +34,6 @@ public class ValidationErrorHandler implements org.xml.sax.ErrorHandler {
             "XSD",
             "fatal",
             e.getMessage(),
-            "Line " + e.getLineNumber() + ", Column " + e.getColumnNumber(),
             null
         ));
         throw e;  // Arrêt de la validation

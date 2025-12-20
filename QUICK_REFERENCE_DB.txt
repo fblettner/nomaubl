@@ -1,0 +1,174 @@
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                    UBL DATABASE INTEGRATION                               ║
+║                         QUICK REFERENCE                                   ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. CONFIGURATION (config.properties)                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+<resource name="global">
+   <property name="updateDB">Y</property>           ← MUST BE Y
+    <property name="URL">jdbc:oracle:thin:@host:1521:SID</property>
+    <property name="schema">PRODDTA</property>
+    <property name="DBUser">username</property>
+    <property name="DBPassword">encrypted</property>
+</resource>
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 2. TABLES CREATED                                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+F564231  →  UBL Header            (Invoice header, amounts, status)
+F564233  →  Invoice Lines         (Line items, qty, prices, tax)
+F564234  →  VAT Summary           (Tax breakdown by rate)
+F564235  →  Lifecycle Events      (Status history, timestamps)
+F564236  →  Validation Results    (Schematron errors/warnings)
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 3. STATUS CODES (F564231.K74INVST, F564235.K74RSCD)                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+CREATED          →  Invoice created in JDE
+VALIDATED        →  Validation successful (no errors)
+VALIDATED_WARN   →  Validation with warnings
+SENT             →  Sent to PA (Plateforme Agréée)
+DEPOSEE          →  Deposited on PA (confirmed)
+ERROR            →  Error occurred
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 4. PROCESS FLOW                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+
+1. Generate UBL XML
+2. Validate (Schematron)
+3. ★ POPULATE TABLES ★  ← Database population happens here
+   ├─ F564235 (CREATED)
+   ├─ F564231 (Header + XML)
+   ├─ F564233 (Lines)
+   ├─ F564234 (VAT)
+   ├─ F564236 (Validation)
+   └─ Update status (VALIDATED)
+4. Send to PA
+   ├─ Update status (SENT)
+   └─ F564235 (SENT)
+5. PA Confirmation
+   ├─ Update status (DEPOSEE)
+   └─ F564235 (DEPOSEE)
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 5. KEY FIELDS MAPPING                                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+
+F564231.K74FLEN    = Invoice Number             (BT-1)
+F564231.K74LDDJ    = Issue Date                 (BT-2)
+F564231.K74LEDT    = Invoice Type (380/381/384) (BT-3)
+F564231.ATXA       = Total HT                   (BT-109)
+F564231.STAM       = Total TVA                  (BT-110)
+F564231.AG         = Total TTC                  (BT-112)
+F564231.AAP        = Amount to Pay              (BT-115)
+F564231.TXFT       = Complete UBL XML           (CLOB)
+F564231.K74INVST   = Invoice Status
+F564231.RMK        = Customer Endpoint ID       (BT-49)
+F564231.PYIN       = Payment Means Code         (BT-81)
+
+F564233.LNID       = Line Number                (BT-126)
+F564233.QNTY       = Quantity                   (BT-129)
+F564233.UPRC       = Unit Price                 (BT-146)
+F564233.K74TVCC    = Tax Category               (BT-151)
+F564233.TXR1       = Tax Rate %                 (BT-152)
+
+F564234.K74TVCC    = Tax Category               (BT-118)
+F564234.TXR1       = Tax Rate %                 (BT-119)
+F564234.ATXA       = Taxable Amount             (BT-116)
+F564234.STAM       = Tax Amount                 (BT-117)
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 6. VERIFICATION QUERIES                                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+
+-- Check header
+SELECT * FROM PRODDTA.F564231 WHERE DOC = 50816470;
+
+-- Check lifecycle
+SELECT SEQN, K74RSCD, K74MSG1, TRDJ 
+FROM PRODDTA.F564235 
+WHERE DOC = 50816470 ORDER BY SEQN;
+
+-- Check validation
+SELECT HSISV, SRCL, RULID, K74MSG1 
+FROM PRODDTA.F564236 
+WHERE DOC = 50816470;
+
+-- Count by status
+SELECT K74INVST, COUNT(*) 
+FROM PRODDTA.F564231 
+GROUP BY K74INVST;
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 7. CONSOLE OUTPUT EXAMPLES                                              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+✅ SUCCESS:
+ ** SUCCESS ** DB ** F564231 : Header inserted for document 50816470
+ ** SUCCESS ** DB ** F564233 : 15 lines inserted for document 50816470
+ ** SUCCESS ** DB ** F564234 : VAT summary inserted (2 entries)
+ ** SUCCESS ** DB ** F564235 : Lifecycle event 'VALIDATED' inserted
+ ** SUCCESS ** DB ** F564236 : 0 validation results inserted
+
+❌ ERROR:
+ ** ERROR ** DB ** F564231 : Failed to insert header for document 50816470
+ ** ERROR ** DB ** F564231 : ORA-00001: unique constraint violated
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 8. TROUBLESHOOTING                                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Problem: Tables not populated
+→ Check: updateDB=Y
+→ Check: Database connection valid
+
+Problem: ORA-00942 table does not exist
+→ Solution: Run CREATE_UBL_TABLES.sql
+→ Check: Schema name correct (schema=PRODDTA)
+
+Problem: ORA-01017 invalid username/password
+→ Check: DBUser and DBPassword correct
+→ Check: Password encryption
+
+Problem: ORA-12899 value too large
+→ Info: Data is auto-truncated
+→ Check: Console warnings for truncations
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 9. FILES REFERENCE                                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+
+Code:
+  src/custom/ubl/UBLDatabaseHandler.java  → Database operations
+  src/custom/ubl/CustomUBL.java           → Integration point
+
+Documentation:
+  docs/UBL_DATABASE_INTEGRATION.md        → Complete guide
+  docs/IMPLEMENTATION_SUMMARY.md          → Implementation details
+  docs/CREATE_UBL_TABLES.sql              → DDL scripts
+  docs/CONFIG_UBL_DATABASE.txt            → Config template
+
+Specification:
+  STD010301 UBL Database Specification.md → Full specification
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 10. TESTING COMMANDS                                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+
+# Test validation only (no PA send)
+java ... nomaubl.ScheduleUBL -c config.properties -t template -f input.xml -m UBL_VALIDATE
+
+# Generate + validate + populate DB + send to PA
+java ... nomaubl.ScheduleUBL -c config.properties -t template -f input.xml -m UBL
+
+
+╔═══════════════════════════════════════════════════════════════════════════╗
+║  Author: Franck Blettner | NOMANA-IT | December 2025                     ║
+║  Specification: STD010301 v1.0                                           ║
+╚═══════════════════════════════════════════════════════════════════════════╝

@@ -83,7 +83,6 @@ public class UBLValidator {
                     "XSD",
                     "FATAL",
                     "Erreur validation XSD: " + e.getMessage(),
-                    null,
                     null));
         }
 
@@ -122,7 +121,6 @@ public class UBLValidator {
 
                 String flag = fa.getAttribute("flag");
                 String ruleId = fa.getAttribute("id");
-                String location = fa.getAttribute("location");
 
                 // Le message du Schematron est déjà normatif et contient souvent l'ID
                 String message = fa.getTextContent().trim();
@@ -131,7 +129,6 @@ public class UBLValidator {
                         profile,
                         (flag == null || flag.isEmpty()) ? "error" : flag,
                         message,
-                        location, 
                         ruleId);
                 
                 result.addError(error);
@@ -142,7 +139,6 @@ public class UBLValidator {
                     profile,
                     "FATAL",
                     "Erreur Schematron: " + e.getMessage(),
-                    null,
                     null));
         }
 

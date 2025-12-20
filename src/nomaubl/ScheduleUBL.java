@@ -384,7 +384,7 @@ public class ScheduleUBL {
    
     /* Remise en forme des documents */
     public static void GenerateReport(String paramTemplate, String paramFile, String paramType, String paramJobNumber, 
-            String paramConfig) throws IOException, Exception{
+            String paramConfig, boolean displayError) throws IOException, Exception{
         
     
             try {               
@@ -502,9 +502,9 @@ public class ScheduleUBL {
                 }
                 
                 for (int i=0; i<numberOfSplit; i++){
-                    tasks.add(new CustomUBL(i*splitInvoiceNumber,splitInvoiceNumber+(splitInvoiceNumber*i),list,xslOutStream,paramTemplate,paramFile,paramConfig, paramType, ublValidator, tokenManager));
+                    tasks.add(new CustomUBL(i*splitInvoiceNumber,splitInvoiceNumber+(splitInvoiceNumber*i),list,xslOutStream,paramTemplate,paramFile,paramConfig, paramType, ublValidator, tokenManager, displayError));
                 }
-                tasks.add(new CustomUBL(numberOfInvoice-splitMod,numberOfInvoice,list,xslOutStream,paramTemplate,paramFile, paramConfig, paramType, ublValidator, tokenManager));
+                tasks.add(new CustomUBL(numberOfInvoice-splitMod,numberOfInvoice,list,xslOutStream,paramTemplate,paramFile, paramConfig, paramType, ublValidator, tokenManager, displayError));
         
                 ExecutorService execute = Executors.newFixedThreadPool(processorCount);
                 runTasks(execute, tasks);
@@ -560,7 +560,7 @@ public class ScheduleUBL {
             String paramJobNumber = args[5];
       
             // Init(paramTemplate,paramConfig, paramFile);
-            GenerateReport(paramTemplate,paramFile,paramType,paramJobNumber,paramConfig);
+            GenerateReport(paramTemplate,paramFile,paramType,paramJobNumber,paramConfig, false);
             
             System.exit(errorCode);
             }

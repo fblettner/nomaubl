@@ -3,7 +3,6 @@
  * All rights reserved. Use is subject to license terms.
  *
  * @author fblettner
- * Modified by RVI: Add XML source into Table blob
  */
 package custom.ubl;
 
@@ -22,10 +21,6 @@ import org.simpleframework.xml.core.Persister;
 import custom.resources.*;
 import static custom.resources.Tools.decodePasswd;
 import java.sql.*;
-import java.util.Date;
-import java.text.DateFormat;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 import oracle.xdo.XDOException;
 import oracle.xdo.template.FOProcessor;
 import java.net.URI;
@@ -36,6 +31,7 @@ import java.time.Duration;
 
 public class CustomUBL implements Callable<Integer> {
 
+    private final boolean displayError;
     private final int startInvoice;
     private final int endInvoice;
     private final NodeList list;
@@ -47,11 +43,11 @@ public class CustomUBL implements Callable<Integer> {
     private final String pParamType;
     private final String pFileName;
     private final String configFile;
-    private String pDocID;
+    private String pdoc;
     private String pActivite;
     private String pTypePiece;
-    private String pTypeJDE;
-    private String pSocieteJDE;
+    private String pdct;
+    private String pkco;
     private String pNumClient;
     private String pMontant;
     private String pDatePiece;
@@ -70,7 +66,6 @@ public class CustomUBL implements Callable<Integer> {
     private String pSchema;
     private String pUpdateDB;
     private String pTableLog;
-    private String pTableErr;
     private String pDBUser;
     private String pDBPasswd;
     private String pCodeRoutage;
@@ -84,6 +79,32 @@ public class CustomUBL implements Callable<Integer> {
     private String pPaApiBaseUrl;
     private String pPaApiImportEndpoint;
     private int pPaApiTimeout;
+    private String pUblConfigPath;
+
+    /**
+     * Generic logging function following standard format: ** LEVEL ** MODULE **
+     * SUBMODULE : message
+     * 
+     * @param level     Log level (INFO, SUCCESS, WARNING, ERROR)
+     * @param module    Module name (UBL, DB, PA, etc.)
+     * @param submodule Submodule or component name
+     * @param message   Log message
+     */
+    private void log(String level, String module, String submodule, String message) {
+        String logMsg = String.format(" ** %s ** %s ** %s : %s",
+                level.toUpperCase(),
+                module.toUpperCase(),
+                submodule,
+                message);
+
+        if (displayError) {
+            if ("ERROR".equalsIgnoreCase(level)) {
+                System.err.println(logMsg);
+            } else {
+                System.out.println(logMsg);
+            }
+        }
+    }
 
     private String replaceConstValue(String inputStr) {
         String replaceStr = inputStr.replace(APP_HOME, pAppHome);
@@ -95,7 +116,9 @@ public class CustomUBL implements Callable<Integer> {
 
     // Déclaration des variables
     public CustomUBL(int startI, int endI, NodeList inputNode, ByteArrayOutputStream baos, String inTmpl,
-            String inFileName, String inConfig, String inParamType, UBLValidator inUBLValidator, TokenManager inTokenManager) {
+            String inFileName, String inConfig, String inParamType, UBLValidator inUBLValidator,
+            TokenManager inTokenManager, boolean inDisplayError) {
+        displayError = inDisplayError || (pUpdateDB != null && pUpdateDB.equalsIgnoreCase("N"));
         startInvoice = startI;
         endInvoice = endI;
         list = inputNode;
@@ -127,18 +150,18 @@ public class CustomUBL implements Callable<Integer> {
             pSchema = resource.getProperty("schema");
             pUpdateDB = resource.getProperty("updateDB");
             pTableLog = resource.getProperty("tableLog");
-            pTableErr = resource.getProperty("tableErr");
             pSetLocale = resource.getProperty("setLocale");
             pDBUser = resource.getProperty("DBUser");
             pDBPasswd = decodePasswd(resource.getProperty("DBPassword"));
             pXdoConfig = resource.getProperty("xdo");
+            pUblConfigPath = replaceConstValue(resource.getProperty("ublConfigPath"));
 
             resource = resources.getResourceByName(pTemplate);
-            pDocID = resource.getProperty("docID");
+            pdoc = resource.getProperty("docID");
             pActivite = resource.getProperty("activite");
             pTypePiece = resource.getProperty("typePiece");
-            pTypeJDE = resource.getProperty("typeJDE");
-            pSocieteJDE = resource.getProperty("societeJDE");
+            pdct = resource.getProperty("typeJDE");
+            pkco = resource.getProperty("societeJDE");
             pNumClient = resource.getProperty("numClient");
             pMontant = resource.getProperty("montant");
             pDatePiece = resource.getProperty("datePiece");
@@ -237,158 +260,6 @@ public class CustomUBL implements Callable<Integer> {
 
     }
 
-    /*
-     * Author : RVI
-     * Date : 02/10/2023
-     * Description : Méthode permettant de convertir un Node en Blob
-     */
-    private Blob convertNodeToBlob(Connection conn, Node n) throws Exception {
-        Blob blobData = conn.createBlob();
-        try {
-            TransformerFactory transformerFactory = TransformerFactory.newInstance();
-            Transformer transformer;
-            transformer = transformerFactory.newTransformer();
-
-            DOMSource source = new DOMSource(n);
-            StreamResult result = new StreamResult(new StringWriter());
-            transformer.transform(source, result);
-
-            String strObject = result.getWriter().toString();
-
-            byte[] byteData = strObject.getBytes("UTF-8");// Better to specify encoding
-
-            blobData.setBytes(1, byteData);
-
-        } catch (TransformerException | UnsupportedEncodingException | SQLException | Error e) {
-            throw new Exception("Thread interrompu ; cause / " + e.getMessage());
-        }
-        return blobData;
-    }
-
-    private Boolean insertDocumentSQL(Connection conn, String docID, String activite, String typePiece, String typeJDE,
-            String societeJDE, Element element) {
-
-        if (pUpdateDB.equals("N"))
-            return true;
-        try {
-            String numClient = getNodeString(pNumClient, element);
-            String montant = getNodeString(pMontant, element);
-            String datePiece = getNodeString(pDatePiece, element);
-            String dateEcheance = getNodeString(pDateEcheance, element);
-            String codeRoutage = getNodeString(pCodeRoutage, element);
-
-            // INSERTION F564230 du document traité
-
-            /*
-             * RVI - On ajoute l'alimentation de la nouvelle colonne F564230.FETXFT -
-             * 02/10/2023
-             */
-            // String sql = "INSERT INTO "+ pSchema+"."+pTableLog+" (FEDOC, FEDCT, FEKCO,
-            // FEAA10, FEAA20, FEALKY, FEAEXP, FEIVD, FEARDU, FEUPMJ, FEPID, FEVERS, FEUSER,
-            // FEJOBN, FEUPMT, FEWDS1, FEEV01) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-            String sql = "INSERT INTO " + pSchema + "." + pTableLog
-                    + " (FEDOC, FEDCT, FEKCO, FEAA10, FEAA20, FEALKY, FEAEXP, FEIVD, FEARDU, FEUPMJ, FEPID, FEVERS, FEUSER, FEJOBN, FEUPMT, FEWDS1, FEEV01, FETXFT) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-
-            PreparedStatement stmt = conn.prepareStatement(sql);
-            stmt.setInt(1, Integer.parseInt(docID));
-            stmt.setString(2, typeJDE);
-            stmt.setString(3, societeJDE);
-            stmt.setString(4, activite);
-            stmt.setString(5, typePiece);
-            stmt.setString(6, numClient);
-            stmt.setInt(7, (int) Float.parseFloat(montant.replace(",", ".")) * 100);
-            DateFormat sdf1 = new SimpleDateFormat("yyyy-MM-dd");
-            DateFormat sdf2 = new SimpleDateFormat("yyyyDDD");
-            DateFormat sdf3 = new SimpleDateFormat("HHmmss");
-            Date dateTmp = sdf1.parse(datePiece);
-            stmt.setInt(8, Integer.parseInt(sdf2.format(dateTmp)) - 1900000);
-            dateTmp = sdf1.parse(dateEcheance);
-            stmt.setInt(9, Integer.parseInt(sdf2.format(dateTmp)) - 1900000);
-            Date date = new Date();
-            stmt.setInt(10, Integer.parseInt(sdf2.format(date)) - 1900000);
-            stmt.setString(11, "JAVA");
-            stmt.setString(12, "V1.0");
-            stmt.setString(13, "JDEBIP");
-            stmt.setString(14, "BIP");
-            stmt.setInt(15, Integer.parseInt(sdf3.format(date)));
-            stmt.setString(16, pFileName);
-            stmt.setString(17, codeRoutage);
-            /*
-             * RVI - On ajoute l'alimentation de la nouvelle colonne F564230.FETXFT -
-             * 02/10/2023
-             */
-            stmt.setBlob(18, convertNodeToBlob(conn, element));
-
-            stmt.executeUpdate();
-
-            stmt.close();
-        }
-        /*
-         * RVI - On récupère une Exception plus générale suite à l'ajout de l'appel à
-         * convertNodeToBlob()
-         */
-        // catch (NumberFormatException | SQLException | ParseException e)
-        catch (Exception e) {
-            insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE, (Element) element, e.getMessage());
-            return false;
-        }
-
-        return true;
-
-    }
-
-    private Boolean insertErrorSQL(Connection conn, String docID, String activite, String typePiece, String typeJDE,
-            String societeJDE, Element element, String Error) {
-
-        if (pUpdateDB.equals("N"))
-            return true;
-        try {
-            String numClient = getNodeString(pNumClient, element);
-            String datePiece = getNodeString(pDatePiece, element);
-            String dateEcheance = getNodeString(pDateEcheance, element);
-            String codeRoutage = getNodeString(pCodeRoutage, element);
-
-            // INSERTION F564230 du document traité
-
-            String sql = "INSERT INTO " + pSchema + "." + pTableErr
-                    + " (FEDOC, FEDCT, FEKCO, FEAA10, FEAA20, FEALKY, FEAEXP, FEIVD, FEARDU, FEUPMJ, FEPID, FEVERS, FEUSER, FEJOBN, FEUPMT, FEWDS1, FEERROR, FEV01) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setInt(1, Integer.parseInt(docID));
-                stmt.setString(2, typeJDE);
-                stmt.setString(3, societeJDE);
-                stmt.setString(4, activite);
-                stmt.setString(5, typePiece);
-                stmt.setString(6, numClient);
-                // stmt.setInt(7,(int) Float.parseFloat(montant)*100);
-                stmt.setInt(7, 0);
-                DateFormat sdf1 = new SimpleDateFormat("yyyy-MM-dd");
-                DateFormat sdf2 = new SimpleDateFormat("yyyyDDD");
-                DateFormat sdf3 = new SimpleDateFormat("HHmmss");
-                Date dateTmp = sdf1.parse(datePiece);
-                stmt.setInt(8, Integer.parseInt(sdf2.format(dateTmp)) - 1900000);
-                dateTmp = sdf1.parse(dateEcheance);
-                stmt.setInt(9, Integer.parseInt(sdf2.format(dateTmp)) - 1900000);
-                Date date = new Date();
-                stmt.setInt(10, Integer.parseInt(sdf2.format(date)) - 1900000);
-                stmt.setString(11, "JAVA");
-                stmt.setString(12, "V1.0");
-                stmt.setString(13, "JDEBIP");
-                stmt.setString(14, "BIP");
-                stmt.setInt(15, Integer.parseInt(sdf3.format(date)));
-                stmt.setString(16, pFileName);
-                stmt.setString(17, Error);
-                stmt.setString(18, codeRoutage);
-
-                stmt.executeUpdate();
-            }
-        } catch (NumberFormatException | SQLException | ParseException e) {
-            return false;
-        }
-
-        return true;
-    }
-
     private boolean convertToUBL(InputStream invoiceXmlStream, String outputUblFile) {
         try {
             // Use Saxon for XSLT 2.0 support
@@ -417,18 +288,19 @@ public class CustomUBL implements Callable<Integer> {
 
     /**
      * Sends UBL file to the Platform Agréée (PA) via API
+     * 
      * @param ublFilePath Path to the UBL XML file
-     * @param docName Document name for logging
+     * @param docName     Document name for logging
      * @return true if successful, false otherwise
      */
     private boolean sendToPlatform(String ublFilePath, String docName) {
         if (!"API".equalsIgnoreCase(pPaMode)) {
-            System.out.println(" ** INFO ** PA ** Mode not API, skipping send for " + docName);
+            log("INFO", "PA", "Mode", "not API, skipping send for " + docName);
             return true;
         }
 
         if (pTokenManager == null) {
-            System.err.println(" ** ERROR ** PA ** TokenManager not initialized for " + docName);
+            log("ERROR", "PA", "TokenManager", "not initialized for " + docName);
             return false;
         }
 
@@ -445,7 +317,7 @@ public class CustomUBL implements Callable<Integer> {
             for (int attempt = 0; attempt < 2; attempt++) {
                 String token = pTokenManager.getToken();
                 if (token == null) {
-                    System.err.println(" ** ERROR ** PA ** Failed to get auth token for " + docName);
+                    log("ERROR", "PA", "Auth", "Failed to get auth token for " + docName);
                     return false;
                 }
 
@@ -454,9 +326,8 @@ public class CustomUBL implements Callable<Integer> {
                         .build();
 
                 String jsonPayload = String.format(
-                    "{\"format\":\"xml_ubl\",\"content\":\"%s\",\"postActions\":[]}",
-                    base64Ubl
-                );
+                        "{\"format\":\"xml_ubl\",\"content\":\"%s\",\"postActions\":[]}",
+                        base64Ubl);
 
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(pPaApiBaseUrl + pPaApiImportEndpoint))
@@ -469,26 +340,26 @@ public class CustomUBL implements Callable<Integer> {
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
                 if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    System.out.println(" ** SUCCESS ** UBL ** PA : Document sent successfully: " + docName);
-                    System.out.println(" ** INFO ** UBL ** PA : Response: " + response.body());
+                    log("SUCCESS", "UBL", "PA", "Document sent successfully: " + docName);
+                    log("INFO", "UBL", "PA", "Response: " + response.body());
                     return true;
                 } else if (response.statusCode() == 401 && attempt == 0) {
                     // Token expired, refresh and retry
-                    System.out.println(" ** WARNING ** UBL ** PA : Token expired, refreshing and retrying for " + docName);
+                    log("WARNING", "UBL", "PA", "Token expired, refreshing and retrying for " + docName);
                     pTokenManager.refreshToken();
                     continue;
                 } else {
-                    System.err.println(" ** ERROR ** UBL ** PA : Failed to send document " + docName + 
-                                       " - Status: " + response.statusCode());
-                    System.err.println(" ** ERROR ** UBL ** PA : Response: " + response.body());
+                    log("ERROR", "UBL", "PA",
+                            "Failed to send document " + docName + " - Status: " + response.statusCode());
+                    log("ERROR", "UBL", "PA", "Response: " + response.body());
                     return false;
                 }
             }
-            
+
             return false;
 
         } catch (Exception e) {
-            System.err.println(" ** ERROR ** UBL ** PA : Exception sending document " + docName + ": " + e.getMessage());
+            log("ERROR", "UBL", "PA", "Exception sending document " + docName + ": " + e.getMessage());
             e.printStackTrace();
             return false;
         }
@@ -496,6 +367,7 @@ public class CustomUBL implements Callable<Integer> {
 
     /**
      * Embeds a PDF file as base64 in the UBL XML document
+     * 
      * @param ublFilePath Path to the UBL XML file
      * @param pdfFilePath Path to the PDF file to embed
      * @param pdfFileName Filename to use in the attachment
@@ -546,7 +418,8 @@ public class CustomUBL implements Callable<Integer> {
             attachment.appendChild(embeddedDoc);
             additionalDocRef.appendChild(attachment);
 
-            // Insert AdditionalDocumentReference after the last existing one or before UBLExtensions if no references exist
+            // Insert AdditionalDocumentReference after the last existing one or before
+            // UBLExtensions if no references exist
             NodeList existingRefs = root.getElementsByTagNameNS(cacNamespace, "AdditionalDocumentReference");
             if (existingRefs.getLength() > 0) {
                 // Insert after the last existing reference
@@ -573,7 +446,7 @@ public class CustomUBL implements Callable<Integer> {
             Transformer transformer = tf.newTransformer();
             transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
             transformer.setOutputProperty(OutputKeys.INDENT, "yes");
- 
+
             DOMSource source = new DOMSource(doc);
             StreamResult result = new StreamResult(new File(ublFilePath));
             transformer.transform(source, result);
@@ -581,8 +454,6 @@ public class CustomUBL implements Callable<Integer> {
             return true;
 
         } catch (Exception e) {
-            System.err.println("Error embedding PDF in UBL: " + e.getMessage());
-            e.printStackTrace();
             return false;
         }
     }
@@ -609,16 +480,30 @@ public class CustomUBL implements Callable<Integer> {
             if (element.hasChildNodes()) {
                 Source src = new DOMSource(element);
                 try {
-                    String docID = getNodeString(pDocID, (Element) element);
+                    String doc = getNodeString(pdoc, (Element) element);
+                    String dct = getNodeString(pdct, (Element) element);
+                    String kco = getNodeString(pkco, (Element) element);
                     String activite = getNodeString(pActivite, (Element) element);
                     String typePiece = getNodeString(pTypePiece, (Element) element);
-                    String typeJDE = getNodeString(pTypeJDE, (Element) element);
-                    String societeJDE = getNodeString(pSocieteJDE, (Element) element);
+
+                    // Create database handler for legacy tables
+                    UBLDatabaseHandler dbHandler = new UBLDatabaseHandler(conn, pSchema, doc, dct, kco, pUblConfigPath, displayError);
+
+                    boolean isDocOK = true;
 
                     // INSERT table F564230
-                    if (insertDocumentSQL(conn, docID, activite, typePiece, typeJDE, societeJDE, (Element) element)) {
+                    if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                        try {
+                            isDocOK = dbHandler.insertDocumentLog(activite, typePiece, 
+                                    (Element) element, pNumClient, pMontant, pDatePiece, pDateEcheance, pCodeRoutage,
+                                    pFileName, pTableLog);
+                        } catch (Exception e) {
+                            log("ERROR", "DB", "INSERT", "Insert failed: " + e.getMessage());
+                        }
+                    }
 
-                        String docName = activite + "_" + typePiece + "_" + docID + "_" + typeJDE + "_" + societeJDE;
+                    if (isDocOK) {
+                        String docName = activite + "_" + typePiece + "_" + doc + "_" + dct + "_" + kco;
 
                         InputStream is;
                         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
@@ -626,14 +511,19 @@ public class CustomUBL implements Callable<Integer> {
                             aTransformer.transform(src, outputTarget);
                             is = new ByteArrayInputStream(outputStream.toByteArray());
 
-                            if (pParamType.equals("BURST") || pParamType.equals("BOTH") || (pAttachment != null && pAttachment.equals("create"))) {
+                            if (pParamType.equals("BURST") || pParamType.equals("BOTH")
+                                    || (pAttachment != null && pAttachment.equals("create"))) {
                                 // Recreate InputStream for PDF generation (consumed by UBL in BOTH mode)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
 
-                                if (!convertToPDF(is, pTempOutput + docName + ".pdf"))
-                                    insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
-                                            (Element) element, "ERREUR CREATION PDF");
-                                else {
+                                if (!convertToPDF(is, pTempOutput + docName + ".pdf")) {
+                                    if (pUpdateDB.equals("Y")) {
+                                        ValidationResult errResult = new ValidationResult();
+                                        errResult.addError(new ValidationError("PDF", "ERROR", "ERREUR CREATION PDF",
+                                                "PDF_CREATION"));
+                                        dbHandler.insertValidationResults(errResult);
+                                    }
+                                } else {
 
                                     String gsExec = "cp " + pTempOutput + docName + ".pdf " + pDirOutput +
                                             docName + ".pdf";
@@ -644,73 +534,231 @@ public class CustomUBL implements Callable<Integer> {
                                     executeGS(gsExec);
 
                                     is = new ByteArrayInputStream(outputStream.toByteArray());
-                                    if (!convertToXML(is, pDirOutput + docName + ".xml"))
-                                        insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
-                                                (Element) element, "ERREUR CREATION INDEX");
+                                    if (!convertToXML(is, pDirOutput + docName + ".xml")) {
+                                        if (pUpdateDB.equals("Y")) {
+                                            ValidationResult errResult = new ValidationResult();
+                                            errResult.addError(new ValidationError("XML", "ERROR",
+                                                    "ERREUR CREATION INDEX", "XML_CREATION"));
+                                            dbHandler.insertValidationResults(errResult);
+                                        }
+                                    }
 
                                 }
 
                             }
 
-                            if (pParamType.equals("UBL") || pParamType.equals("BOTH") || pParamType.equals("UBL_VALIDATE")) {
-                                // Recreate InputStream for UBL conversion (may have been consumed by PDF/XML generation)
+                            if (pParamType.equals("UBL") || pParamType.equals("BOTH")
+                                    || pParamType.equals("UBL_VALIDATE")) {
+                                // Recreate InputStream for UBL conversion (may have been consumed by PDF/XML
+                                // generation)
                                 is = new ByteArrayInputStream(outputStream.toByteArray());
-                                
+
                                 String ublFile = pDirOutput + docName + "_ubl.xml";
                                 if (!convertToUBL(is, ublFile)) {
-                                    insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
-                                            (Element) element,
-                                            "ERREUR CREATION UBL");
+                                    if (pUpdateDB.equals("Y")) {
+                                        ValidationResult errResult = new ValidationResult();
+                                        errResult.addError(new ValidationError("UBL", "ERROR", "ERREUR CREATION UBL",
+                                                "UBL_CREATION"));
+                                        dbHandler.insertValidationResults(errResult);
+                                    }
                                 } else {
                                     // Add PDF attachment if required (not in validation-only mode)
-                                    if (!pParamType.equals("UBL_VALIDATE") && pAttachment != null && (pAttachment.equals("create") || pAttachment.equals("attach"))) {
+                                    if (!pParamType.equals("UBL_VALIDATE") && pAttachment != null
+                                            && (pAttachment.equals("create") || pAttachment.equals("attach"))) {
                                         String pdfFile = pDirInput + docName + ".pdf";
-                                        if (pAttachment.equals("create")) 
+                                        if (pAttachment.equals("create"))
                                             pdfFile = pDirOutput + docName + ".pdf";
-                                           
+
                                         String pdfFileName = docName + ".pdf";
                                         if (!embedPdfInUBL(ublFile, pdfFile, pdfFileName)) {
-                                            System.err.println(" ** WARNING ** UBL ** Attachment : Could not embed PDF attachment in UBL for " + docName);
+                                            log("WARNING", "UBL", "Attachment",
+                                                    "Could not embed PDF attachment in UBL for " + docName);
                                         } else {
-                                            System.out.println(" ** SUCCESS ** UBL ** ** Attachment : PDF attachment embedded in UBL for " + docName);
+                                            log("SUCCESS", "UBL", "Attachment",
+                                                    "PDF attachment embedded in UBL for " + docName);
                                         }
                                     }
-                                    
+
                                     Document ublDoc = parseUBLFile(ublFile);
                                     ValidationResult validResult = pUBLValidator.validateUbl(ublDoc);
+
+                                    // Populate UBL tables if enabled (before sending to PA)
+                                    if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                        try {
+
+                                            // Insert lifecycle event: CREATED
+                                            dbHandler.insertLifecycleEvent("CREATED",
+                                                    "Invoice created in JDE");
+
+                                            // Insert header
+                                            String numClient = getNodeString(pNumClient, (Element) element);
+                                            if (dbHandler.insertUBLHeader(ublDoc, 
+                                                    null, null, null, null, numClient)) {
+                                                // Insert lines
+                                                dbHandler.insertUBLLines(ublDoc);
+
+                                                // Insert VAT summary
+                                                dbHandler.insertVATSummary(ublDoc);
+
+                                                // Insert validation results
+                                                dbHandler.insertValidationResults(
+                                                        validResult);
+                                            }
+                                        } catch (Exception e) {
+                                            log("ERROR", "DB", "UBL Tables",
+                                                    "Failed to populate UBL tables for " + docName);
+                                            log("ERROR", "DB", "UBL Tables", e.getMessage());
+                                            e.printStackTrace();
+                                        }
+                                    }
+
                                     if (!validResult.isValid()) {
                                         // Display all errors/warnings
                                         for (ValidationError e : validResult.getErrors()) {
-                                            // Format: " ** SEVERITY ** SOURCE ** RULE_ID : MESSAGE"
-                                            String ruleId = e.getRuleId() != null ? e.getRuleId() : "";
-                                            System.out.println(" ** " + e.getSeverity() + " ** " + e.getSource() + " ** " + ruleId + " : " + e.getMessage());
+                                            String ruleId = e.getRuleId() != null ? e.getRuleId() : "UNDEFINED";
+                                            log(e.getSeverity(), e.getSource(), ruleId, e.getMessage());
                                         }
-                                        
+
+                                        // Update status to VALIDATED (with warnings) if UBL tables populated
+                                        if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                            try {
+                                                dbHandler.updateInvoiceStatus(
+                                                        "VALIDATED_WARN");
+                                                dbHandler.insertLifecycleEvent(
+                                                        "VALIDATED_WARN",
+                                                        "Validation completed with warnings");
+                                            } catch (Exception e) {
+                                                log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                            }
+                                        }
+
                                         // Check if only warnings (no errors)
                                         boolean hasOnlyWarnings = true;
                                         for (ValidationError e : validResult.getErrors()) {
-                                            if (!"WARNING".equalsIgnoreCase(e.getSeverity())) {
+                                            if (!"WARNING".equalsIgnoreCase(e.getSeverity().toUpperCase())) {
                                                 hasOnlyWarnings = false;
                                                 break;
                                             }
                                         }
-                                        
+
                                         // Send to PA if F (force) mode and only warnings (not in validation-only mode)
-                                        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA) && hasOnlyWarnings) {
-                                            System.out.println(" ** INFO ** UBL ** PA : forcing send to PA despite warnings for " + docName);
+                                        if (!pParamType.equals("UBL_VALIDATE") && "F".equalsIgnoreCase(pSendToPA)
+                                                && hasOnlyWarnings) {
+                                            log("INFO", "UBL", "PA",
+                                                    "forcing send to PA despite warnings for " + docName);
+
+                                            // Update status before sending
+                                            if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                                try {
+                                                    dbHandler.updateInvoiceStatus("SENT");
+                                                    dbHandler.insertLifecycleEvent("SENT",
+                                                            "Sent to PA");
+                                                } catch (Exception e) {
+                                                    log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                                }
+                                            }
+
                                             if (!sendToPlatform(ublFile, docName)) {
-                                                insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
-                                                        (Element) element, "ERREUR ENVOI PA");
+                                                if (pUpdateDB.equals("Y")) {
+                                                    ValidationResult errResult = new ValidationResult();
+                                                    errResult.addError(new ValidationError("PA", "ERROR",
+                                                            "ERREUR ENVOI PA", "PA_SEND"));
+                                                    dbHandler.insertValidationResults(
+                                                            errResult);
+                                                }
+
+                                                // Update status to ERROR
+                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                                    try {
+                                                        dbHandler.updateInvoiceStatus(
+                                                                "ERROR");
+                                                        dbHandler.insertLifecycleEvent(
+                                                                "ERROR",
+                                                                "Failed to send to PA");
+                                                    } catch (Exception e) {
+                                                        log("ERROR", "DB", "Status",
+                                                                "Update failed: " + e.getMessage());
+                                                    }
+                                                }
+                                            } else {
+                                                // Update status to DEPOSEE (deposited)
+                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                                    try {
+                                                        dbHandler.updateInvoiceStatus(
+                                                                "DEPOSEE");
+                                                        dbHandler.insertLifecycleEvent(
+                                                                "DEPOSEE", "Deposited on PA");
+                                                    } catch (Exception e) {
+                                                        log("ERROR", "DB", "Status",
+                                                                "Update failed: " + e.getMessage());
+                                                    }
+                                                }
                                             }
                                         }
                                     } else {
-                                        System.out.println(" ** SUCCESS ** UBL ** " + typePiece + " : validation successful for " + docName);
-                                        
+                                        log("SUCCESS", "UBL", typePiece, "validation successful for " + docName);
+
+                                        // Update status to VALIDATED if UBL tables populated
+                                        if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                            try {
+                                                dbHandler.updateInvoiceStatus("VALIDATED");
+                                                dbHandler.insertLifecycleEvent("VALIDATED",
+                                                        "Validation successful");
+                                            } catch (Exception e) {
+                                                log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                            }
+                                        }
+
                                         // Send to PA if enabled (Y or F mode) - not in validation-only mode
-                                        if (!pParamType.equals("UBL_VALIDATE") && ("Y".equalsIgnoreCase(pSendToPA) || "F".equalsIgnoreCase(pSendToPA))) {
+                                        if (!pParamType.equals("UBL_VALIDATE")
+                                                && ("Y".equalsIgnoreCase(pSendToPA)
+                                                        || "F".equalsIgnoreCase(pSendToPA))) {
+
+                                            // Update status before sending
+                                            if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                                try {
+                                                    dbHandler.updateInvoiceStatus("SENT");
+                                                    dbHandler.insertLifecycleEvent("SENT",
+                                                            "Sent to PA");
+                                                } catch (Exception e) {
+                                                    log("ERROR", "DB", "Status", "Update failed: " + e.getMessage());
+                                                }
+                                            }
+
                                             if (!sendToPlatform(ublFile, docName)) {
-                                                insertErrorSQL(conn, docID, activite, typePiece, typeJDE, societeJDE,
-                                                        (Element) element, "ERREUR ENVOI PA");
+                                                if (pUpdateDB.equals("Y")) {
+                                                    ValidationResult errResult = new ValidationResult();
+                                                    errResult.addError(new ValidationError("PA", "ERROR",
+                                                            "ERREUR ENVOI PA", "PA_SEND"));
+                                                    dbHandler.insertValidationResults(
+                                                            errResult);
+                                                }
+
+                                                // Update status to ERROR
+                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                                    try {
+                                                        dbHandler.updateInvoiceStatus(
+                                                                "ERROR");
+                                                        dbHandler.insertLifecycleEvent(
+                                                                "ERROR",
+                                                                "Failed to send to PA");
+                                                    } catch (Exception e) {
+                                                        log("ERROR", "DB", "Status",
+                                                                "Update failed: " + e.getMessage());
+                                                    }
+                                                }
+                                            } else {
+                                                // Update status to DEPOSEE (deposited)
+                                                if ("Y".equalsIgnoreCase(pUpdateDB) && conn != null) {
+                                                    try {
+                                                        dbHandler.updateInvoiceStatus("DEPOSEE");
+                                                        dbHandler.insertLifecycleEvent("DEPOSEE",
+                                                                "Deposited on PA");
+                                                    } catch (Exception e) {
+                                                        log("ERROR", "DB", "Status",
+                                                                "Update failed: " + e.getMessage());
+                                                    }
+                                                }
                                             }
                                         }
                                     }
